@@ -1,0 +1,4 @@
+# Initial size of the native GLFW window.
+# ImGui panel positions and sizes are saved separately in build/imgui.ini.
+width=1570
+height=920

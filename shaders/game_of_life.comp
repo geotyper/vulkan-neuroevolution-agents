@@ -1,0 +1,43 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InputGrid {
+    uint cells[];
+} inputGrid;
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputGrid {
+    uint cells[];
+} outputGrid;
+
+layout(push_constant) uniform GridSize {
+    uint width;
+    uint height;
+} grid;
+
+layout(constant_id = 0) const uint aliveValue = 1;
+
+uint cellAt(ivec2 position) {
+    const ivec2 size = ivec2(grid.width, grid.height);
+    const ivec2 wrapped = (position % size + size) % size;
+    return inputGrid.cells[uint(wrapped.y) * grid.width + uint(wrapped.x)];
+}
+
+void main() {
+    const uvec2 position = gl_GlobalInvocationID.xy;
+    if (position.x >= grid.width || position.y >= grid.height) {
+        return;
+    }
+
+    uint neighbours = 0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            if (x != 0 || y != 0) {
+                neighbours += cellAt(ivec2(position) + ivec2(x, y));
+            }
+        }
+    }
+    const uint current = cellAt(ivec2(position));
+    const bool alive = neighbours == 3 || (current != 0 && neighbours == 2);
+    outputGrid.cells[position.y * grid.width + position.x] = alive ? aliveValue : 0;
+}
