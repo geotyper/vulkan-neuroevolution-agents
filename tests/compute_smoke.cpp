@@ -1,6 +1,7 @@
 #include "vkexp/compute/HeadlessComputeContext.hpp"
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/simulation/AgentTypes.hpp"
+#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
 
 #include <vulkan/vulkan.h>
@@ -144,8 +145,9 @@ void runImageRoundTrip(vkexp::HeadlessComputeContext& context) {
     }
 }
 
-void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
-                         const vkexp::WorldShape worldShape) {
+void runNeuralStepParity(
+    vkexp::HeadlessComputeContext& context, const vkexp::WorldShape worldShape,
+    const vkexp::BeaconScenario beaconScenario = vkexp::BeaconScenario::Stationary) {
     vkexp::neuro::Weights weights{};
     for (std::size_t index = 0; index < weights.size(); ++index) {
         weights[index] = std::sin(static_cast<float>(index) * 0.37F) * 0.31F;
@@ -155,12 +157,17 @@ void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
     initial.motion = {2.0F, -1.0F, 9.0F, 1.0F};
     initial.signal = {0.1F, 0.2F, 0.3F, 0.0F};
     initial.target = {0.62F, 0.41F, 0.0F, 0.0F};
-    const float initialDx = initial.target.x - initial.pose.x;
-    const float initialDy = initial.target.y - initial.pose.y;
-    const float initialDistance = std::sqrt(initialDx * initialDx + initialDy * initialDy);
-    initial.metrics = {initialDistance, initialDistance, 0.0F, 0.0F};
     vkexp::SimulationStep settings{};
     settings.worldShape = worldShape;
+    settings.beaconScenario = beaconScenario;
+    vkexp::SimulationStep initialSettings = settings;
+    initialSettings.beaconPhase = 0;
+    const float initialDistance = vkexp::nearestBeaconDistance(initial, initialSettings);
+    initial.metrics = {initialDistance, initialDistance, 0.0F, 0.0F};
+    if (beaconScenario == vkexp::BeaconScenario::AlternatingDiagonals) {
+        settings.beaconPhase = 1;
+        settings.beaconPhaseChanged = true;
+    }
     vkexp::AgentState expected = initial;
     vkexp::stepAgentCpu(expected, weights, settings);
     const float expectedSpeed =
@@ -273,7 +280,11 @@ void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
         gridWidth,
         gridCells,
         settings.agentCollisionsEnabled ? 1U : 0U,
-        settings.agentLightEnabled ? 1U : 0U};
+        settings.agentLightEnabled ? 1U : 0U,
+        static_cast<std::uint32_t>(settings.beaconScenario),
+        settings.beaconPhase,
+        settings.beaconPhaseChanged ? 1U : 0U,
+        0U};
     context.immediate().execute([&](const VkCommandBuffer commands) {
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
         vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout(), 0, 1,
@@ -414,7 +425,11 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
         gridWidth,
         gridCells,
         settings.agentCollisionsEnabled ? 1U : 0U,
-        settings.agentLightEnabled ? 1U : 0U};
+        settings.agentLightEnabled ? 1U : 0U,
+        static_cast<std::uint32_t>(settings.beaconScenario),
+        settings.beaconPhase,
+        settings.beaconPhaseChanged ? 1U : 0U,
+        0U};
     context.immediate().execute([&](const VkCommandBuffer commands) {
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
         vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout(), 0, 1,
@@ -449,6 +464,8 @@ int run() {
     runImageRoundTrip(context);
     runNeuralStepParity(context, vkexp::WorldShape::Circle);
     runNeuralStepParity(context, vkexp::WorldShape::Square);
+    runNeuralStepParity(context, vkexp::WorldShape::Circle,
+                        vkexp::BeaconScenario::AlternatingDiagonals);
     runAgentInteractionTest(context);
     std::cout << "Headless compute and CPU/GPU neural parity tests passed on "
               << context.deviceName() << '\n';

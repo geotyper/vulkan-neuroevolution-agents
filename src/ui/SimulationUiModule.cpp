@@ -65,10 +65,21 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         state_.controls.stepsPerFrame = static_cast<std::uint32_t>(stepsPerFrame);
     }
     int generationSteps = static_cast<int>(state_.controls.stepsPerGeneration);
-    if (ImGui::SliderInt("Steps / generation", &generationSteps, 120, 3600)) {
+    if (ImGui::SliderInt("Steps / generation", &generationSteps, 120, 15000, "%d",
+                         ImGuiSliderFlags_Logarithmic)) {
         state_.controls.stepsPerGeneration = static_cast<std::uint32_t>(generationSteps);
+        state_.controls.resetRequested = true;
     }
-    ImGui::SeparatorText("Physics");
+    ImGui::SeparatorText("World");
+    int worldSize = static_cast<int>(state_.physics.worldSize);
+    constexpr const char* worldSizes[] = {"Small (x1)", "Medium (x1.5)", "Large (x3)"};
+    if (ImGui::Combo("World size", &worldSize, worldSizes, 3)) {
+        state_.physics.worldSize = static_cast<WorldSize>(worldSize);
+        state_.physics.worldRadius = worldRadiusForSize(state_.physics.worldSize);
+        state_.physics.lightSensorRange =
+            std::min(state_.physics.lightSensorRange, state_.physics.worldRadius * 2.0F);
+        state_.controls.resetRequested = true;
+    }
     int worldShape = static_cast<int>(state_.physics.worldShape);
     constexpr const char* worldShapes[] = {"Circle", "Square"};
     if (ImGui::Combo("World shape", &worldShape, worldShapes, 2)) {
@@ -76,6 +87,18 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         state_.controls.resetRequested = true;
     }
     ImGui::Text("World span: %.2f", state_.physics.worldRadius * 2.0F);
+    int beaconScenario = static_cast<int>(state_.physics.beaconScenario);
+    constexpr const char* beaconScenarios[] = {"Stationary", "Alternating diagonals"};
+    if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios, 2)) {
+        state_.physics.beaconScenario = static_cast<BeaconScenario>(beaconScenario);
+        state_.controls.resetRequested = true;
+    }
+    if (state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals) {
+        const std::uint32_t phase =
+            state_.statistics.step >= state_.controls.stepsPerGeneration / 2 ? 2U : 1U;
+        ImGui::TextDisabled("Active diagonal: %u / 2", phase);
+    }
+    ImGui::SeparatorText("Physics");
     ImGui::SliderFloat("Thrust", &state_.physics.thrust, 0.2F, 4.0F);
     ImGui::SliderFloat("Turn", &state_.physics.turnAcceleration, 0.5F, 10.0F);
     ImGui::SliderFloat("Linear drag", &state_.physics.linearDrag, 0.1F, 5.0F);
@@ -110,12 +133,12 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Text("Best fitness:   %.4f", state_.statistics.bestFitness);
     ImGui::Text("Median fitness: %.4f", state_.statistics.medianFitness);
     ImGui::Text("Mean fitness:   %.4f", state_.statistics.meanFitness);
-    ImGui::Text("Reached beacon: %.1f%%", state_.statistics.arrivalRatio * 100.0F);
+    ImGui::Text("Beacon objectives: %.1f%%", state_.statistics.arrivalRatio * 100.0F);
     ImGui::SeparatorText("Fitness history");
     plotHistory("Best", state_.history.bestFitness);
     plotHistory("Median", state_.history.medianFitness);
     plotHistory("Mean", state_.history.meanFitness);
-    plotHistory("Arrival ratio", state_.history.arrivalRatio, 0.0F, 1.0F);
+    plotHistory("Objective completion", state_.history.arrivalRatio, 0.0F, 1.0F);
     ImGui::SeparatorText("Evolution parameters");
     ImGui::Text("Population: %zu", state_.evolution.populationSize);
     ImGui::Text("Elites: %zu   Tournament: %zu", state_.evolution.eliteCount,

@@ -1,5 +1,6 @@
 #include "vkexp/simulation/CpuSimulation.hpp"
 
+#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/Sensors.hpp"
 
 #include <algorithm>
@@ -31,6 +32,12 @@ void recordWallContact(AgentState& agent, const float directionX, const float di
 void stepAgentCpu(AgentState& agent,
                   const std::span<const float, neuro::Topology::weightCount> weights,
                   const SimulationStep& settings) {
+    if (settings.beaconScenario == BeaconScenario::AlternatingDiagonals &&
+        settings.beaconPhaseChanged) {
+        agent.metrics.w += agent.metrics.x - agent.metrics.y;
+        agent.metrics.x = nearestBeaconDistance(agent, settings);
+        agent.metrics.y = agent.metrics.x;
+    }
     const neuro::Outputs output = neuro::evaluate(weights, sampleAgentInputs(agent, settings));
     const float left = output[0];
     const float right = output[1];
@@ -111,18 +118,20 @@ void stepAgentCpu(AgentState& agent,
     agent.signal = {output[2] * 0.5F + 0.5F, output[3] * 0.5F + 0.5F, output[4] * 0.5F + 0.5F,
                     signalIntensity};
 
-    const float targetX = agent.target.x - agent.pose.x;
-    const float targetY = agent.target.y - agent.pose.y;
-    const float distance = std::sqrt(targetX * targetX + targetY * targetY);
+    const float distance = nearestBeaconDistance(agent, settings);
     agent.metrics.y = std::min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;
     if (distance < settings.arrivalRadius) {
-        agent.metrics.w = 1.0F;
+        const std::uint32_t phaseBit = 1U << settings.beaconPhase;
+        const auto completedMask =
+            static_cast<std::uint32_t>(std::max(agent.target.w, 0.0F) + 0.5F) | phaseBit;
+        agent.target.w = static_cast<float>(completedMask);
     }
 }
 
 float agentFitness(const AgentState& agent) {
-    return (agent.metrics.x - agent.metrics.y) + agent.metrics.w * 2.0F - agent.metrics.z * 0.002F;
+    return agent.metrics.w + (agent.metrics.x - agent.metrics.y) +
+           static_cast<float>(completedBeaconPhases(agent)) * 2.0F - agent.metrics.z * 0.002F;
 }
 
 } // namespace vkexp

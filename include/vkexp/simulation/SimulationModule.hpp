@@ -29,7 +29,8 @@ private:
     void resetGeneration();
     void finishGeneration();
     void uploadPopulation();
-    [[nodiscard]] GpuStepParameters stepParameters() const;
+    void updateGridDimensions();
+    [[nodiscard]] GpuStepParameters stepParameters(std::uint32_t generationStep) const;
     [[nodiscard]] std::vector<AgentState> makeInitialAgents() const;
 
     SimulationState& state_;

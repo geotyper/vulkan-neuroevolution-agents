@@ -70,6 +70,8 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 
 ### 4. Memory and task switching
 
+- [x] stationary and mid-generation alternating beacon scenarios;
+- [x] discrete small, medium, and large training arenas;
 - [ ] recurrent/internal state with explicit reset semantics;
 - [ ] energy pickup and nest delivery;
 - [ ] outbound/return behavior fitness;

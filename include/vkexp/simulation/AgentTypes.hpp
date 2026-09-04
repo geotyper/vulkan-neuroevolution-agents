@@ -12,6 +12,31 @@ enum class WorldShape : std::uint32_t {
     Square = 1,
 };
 
+enum class WorldSize : std::uint32_t {
+    Small = 0,
+    Medium = 1,
+    Large = 2,
+};
+
+enum class BeaconScenario : std::uint32_t {
+    Stationary = 0,
+    AlternatingDiagonals = 1,
+};
+
+inline constexpr float smallWorldRadius = 1.84F;
+
+[[nodiscard]] constexpr float worldRadiusForSize(const WorldSize size) {
+    switch (size) {
+    case WorldSize::Small:
+        return smallWorldRadius;
+    case WorldSize::Medium:
+        return smallWorldRadius * 1.5F;
+    case WorldSize::Large:
+        return smallWorldRadius * 3.0F;
+    }
+    return smallWorldRadius;
+}
+
 struct alignas(16) Float4 {
     float x{};
     float y{};
@@ -24,8 +49,8 @@ struct alignas(16) AgentState {
     Float4 pose;        // position.xy, angle, circular collision radius
     Float4 motion;      // velocity.xy, angular velocity, normalized energy
     Float4 signal;      // emitted RGB and intensity
-    Float4 target;      // beacon.xy, trial id, genome id
-    Float4 metrics;     // initial distance, minimum distance, motor cost, reached flag
+    Float4 target;      // stationary beacon.xy, trial id, completed-phase bit mask
+    Float4 metrics;     // phase start/min distance, motor cost, completed-phase progress
     Float4 wallTouch0;  // wall contact sectors 0..3
     Float4 wallTouch1;  // wall contact sectors 4..7
     Float4 agentTouch0; // agent contact sectors 0..3
@@ -39,7 +64,7 @@ static_assert(offsetof(AgentState, wallTouch0) == 80);
 
 struct SimulationStep {
     float deltaTime{1.0F / 60.0F};
-    float worldRadius{1.84F};
+    float worldRadius{smallWorldRadius};
     float thrust{1.9F};
     float turnAcceleration{5.0F};
     float linearDrag{1.7F};
@@ -53,6 +78,10 @@ struct SimulationStep {
     float collisionRestitution{0.35F};
     float collisionStiffness{0.85F};
     WorldShape worldShape{WorldShape::Circle};
+    WorldSize worldSize{WorldSize::Small};
+    BeaconScenario beaconScenario{BeaconScenario::Stationary};
+    std::uint32_t beaconPhase{};
+    bool beaconPhaseChanged{};
     bool agentCollisionsEnabled{true};
     bool agentLightEnabled{true};
 };
@@ -82,8 +111,12 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t gridCellsPerTrial{};
     std::uint32_t agentCollisionsEnabled{};
     std::uint32_t agentLightEnabled{};
+    std::uint32_t beaconScenario{};
+    std::uint32_t beaconPhase{};
+    std::uint32_t beaconPhaseChanged{};
+    std::uint32_t reservedUint{};
 };
 
-static_assert(sizeof(GpuStepParameters) == 96);
+static_assert(sizeof(GpuStepParameters) == 112);
 
 } // namespace vkexp

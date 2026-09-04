@@ -23,8 +23,12 @@ layout(push_constant) uniform DrawParameters {
     float opacity;
     uint mode; // 0 circular body, 1 beacon, 2 light halo, 3 arena, 4 heading
     uint worldShape;
+    uint beaconScenario;
+    uint beaconPhase;
+    uint reserved0;
     uint reserved1;
     uint reserved2;
+    uint reserved3;
 } params;
 
 layout(location = 0) out vec4 color;
@@ -59,10 +63,24 @@ void main() {
         bodyColor = mix(bodyColor, vec3(1.0, 0.95, 0.35), agentContact * 0.85);
         color = vec4(bodyColor, params.opacity);
     } else if (params.mode == 1) {
-        world = agent.target.xy + circleVertex(gl_VertexIndex, 0.060, 16);
         const vec3 trialColors[4] = vec3[](vec3(0.20, 0.85, 1.0), vec3(1.0, 0.35, 0.75),
                                            vec3(0.55, 1.0, 0.35), vec3(1.0, 0.72, 0.20));
-        color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
+        if (params.beaconScenario == 0) {
+            world = agent.target.xy + circleVertex(gl_VertexIndex, 0.060, 16);
+            color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
+        } else {
+            const float offset = params.worldRadius * 0.62;
+            if (params.beaconPhase == 0) {
+                world = gl_InstanceIndex == 0 ? vec2(-offset, -offset)
+                                              : vec2(offset, offset);
+            } else {
+                world = gl_InstanceIndex == 0 ? vec2(-offset, offset)
+                                              : vec2(offset, -offset);
+            }
+            world += circleVertex(gl_VertexIndex, 0.060, 16);
+            color = vec4(trialColors[params.beaconPhase * 2 + gl_InstanceIndex],
+                         params.opacity);
+        }
     } else if (params.mode == 2) {
         const float radius = agent.pose.w + agent.signal.a * 0.055;
         world = agent.pose.xy + circleVertex(gl_VertexIndex, radius, 16);

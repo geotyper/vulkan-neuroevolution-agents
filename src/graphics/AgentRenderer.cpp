@@ -2,6 +2,7 @@
 
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/profiling/Profiler.hpp"
+#include "vkexp/simulation/Beacons.hpp"
 
 #include <algorithm>
 #include <array>
@@ -17,10 +18,14 @@ struct DrawParameters {
     float opacity{};
     std::uint32_t mode{};
     std::uint32_t worldShape{};
+    std::uint32_t beaconScenario{};
+    std::uint32_t beaconPhase{};
+    std::uint32_t reserved0{};
     std::uint32_t reserved1{};
     std::uint32_t reserved2{};
+    std::uint32_t reserved3{};
 };
-static_assert(sizeof(DrawParameters) == 32);
+static_assert(sizeof(DrawParameters) == 48);
 
 } // namespace
 
@@ -169,10 +174,20 @@ void AgentRenderer::onUpdate(AppContext& context, const FrameInfo&) {
 void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, const float scaleY,
                          const float worldRadius, const std::uint32_t mode, const float opacity,
                          const std::uint32_t vertices, const std::uint32_t instances) const {
-    const DrawParameters parameters{
-        scaleX,  scaleY, worldRadius,
-        opacity, mode,   static_cast<std::uint32_t>(state_.physics.worldShape),
-        0,       0};
+    const DrawParameters parameters{scaleX,
+                                    scaleY,
+                                    worldRadius,
+                                    opacity,
+                                    mode,
+                                    static_cast<std::uint32_t>(state_.physics.worldShape),
+                                    static_cast<std::uint32_t>(state_.physics.beaconScenario),
+                                    beaconPhaseForStep(state_.physics.beaconScenario,
+                                                       state_.statistics.step,
+                                                       state_.controls.stepsPerGeneration),
+                                    0,
+                                    0,
+                                    0,
+                                    0};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(parameters), &parameters);
     vkCmdDraw(commands, vertices, instances, 0, 0);
@@ -223,8 +238,10 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 3, 1.0F, arenaVertices, 1);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48,
          state_.agents.agentCount);
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 1, 0.90F, 48,
-         state_.agents.trialsPerGenome);
+    const std::uint32_t beaconInstances =
+        state_.physics.beaconScenario == BeaconScenario::Stationary ? state_.agents.trialsPerGenome
+                                                                    : 2U;
+    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 1, 0.90F, 48, beaconInstances);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 0, 0.88F, 48,
          state_.agents.agentCount);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 4, 0.95F, 3,

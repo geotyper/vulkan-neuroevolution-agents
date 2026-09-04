@@ -1,5 +1,7 @@
 #include "vkexp/simulation/Sensors.hpp"
 
+#include "vkexp/simulation/Beacons.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -20,13 +22,6 @@ float component(const Float4& value, const std::size_t index) {
     }
 }
 
-Float4 beaconColor(const std::size_t trial) {
-    constexpr std::array colors{
-        Float4{0.20F, 0.85F, 1.00F, 0.0F}, Float4{1.00F, 0.35F, 0.75F, 0.0F},
-        Float4{0.55F, 1.00F, 0.35F, 0.0F}, Float4{1.00F, 0.72F, 0.20F, 0.0F}};
-    return colors[trial % colors.size()];
-}
-
 float rangeFalloff(const float distance, const float range) {
     const float fade = std::clamp((range - distance) / (range * 0.25F), 0.0F, 1.0F);
     return fade * fade * (3.0F - 2.0F * fade);
@@ -36,29 +31,39 @@ float rangeFalloff(const float distance, const float range) {
 
 neuro::Inputs sampleAgentInputs(const AgentState& agent, const SimulationStep& settings) {
     neuro::Inputs inputs{};
-    const float dx = agent.target.x - agent.pose.x;
-    const float dy = agent.target.y - agent.pose.y;
-    const float distanceSquared = dx * dx + dy * dy;
-    const float distance = std::sqrt(std::max(distanceSquared, 1.0e-8F));
-    const float lightX = dx / distance;
-    const float lightY = dy / distance;
-    const float normalizedDistanceSquared =
-        distanceSquared / (settings.worldRadius * settings.worldRadius);
-    const float attenuation = 1.0F / (1.0F + normalizedDistanceSquared * 2.0F);
-    const float falloff = rangeFalloff(distance, settings.lightSensorRange);
-    const Float4 color = beaconColor(static_cast<std::size_t>(agent.target.z));
+    std::array<std::array<float, 3>, neuro::Topology::lightReceptorCount> radiance{};
+    const ActiveBeacons beacons = activeBeacons(agent, settings);
+
+    for (std::size_t beaconIndex = 0; beaconIndex < beacons.count; ++beaconIndex) {
+        const Beacon& beacon = beacons.values[beaconIndex];
+        const float dx = beacon.position.x - agent.pose.x;
+        const float dy = beacon.position.y - agent.pose.y;
+        const float distanceSquared = dx * dx + dy * dy;
+        const float distance = std::sqrt(std::max(distanceSquared, 1.0e-8F));
+        const float lightX = dx / distance;
+        const float lightY = dy / distance;
+        const float normalizedDistanceSquared =
+            distanceSquared / (settings.worldRadius * settings.worldRadius);
+        const float attenuation = 1.0F / (1.0F + normalizedDistanceSquared * 2.0F);
+        const float falloff = rangeFalloff(distance, settings.lightSensorRange);
+        for (std::size_t receptor = 0; receptor < neuro::Topology::lightReceptorCount; ++receptor) {
+            const float fraction = static_cast<float>(receptor) /
+                                   static_cast<float>(neuro::Topology::lightReceptorCount - 1);
+            const float sensorAngle = agent.pose.z + (fraction - 0.5F) * settings.sensorFieldOfView;
+            const float alignment =
+                std::max(std::cos(sensorAngle) * lightX + std::sin(sensorAngle) * lightY, 0.0F);
+            const float intensity = std::pow(alignment, 12.0F) * attenuation * falloff;
+            radiance[receptor][0] += beacon.color.x * intensity;
+            radiance[receptor][1] += beacon.color.y * intensity;
+            radiance[receptor][2] += beacon.color.z * intensity;
+        }
+    }
 
     for (std::size_t receptor = 0; receptor < neuro::Topology::lightReceptorCount; ++receptor) {
-        const float fraction = static_cast<float>(receptor) /
-                               static_cast<float>(neuro::Topology::lightReceptorCount - 1);
-        const float sensorAngle = agent.pose.z + (fraction - 0.5F) * settings.sensorFieldOfView;
-        const float alignment =
-            std::max(std::cos(sensorAngle) * lightX + std::sin(sensorAngle) * lightY, 0.0F);
-        const float intensity = std::pow(alignment, 12.0F) * attenuation * falloff;
         const std::size_t base = receptor * neuro::Topology::lightChannelsPerReceptor;
-        inputs[base] = 1.0F - std::exp(-settings.lightExposure * color.x * intensity);
-        inputs[base + 1] = 1.0F - std::exp(-settings.lightExposure * color.y * intensity);
-        inputs[base + 2] = 1.0F - std::exp(-settings.lightExposure * color.z * intensity);
+        inputs[base] = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][0]);
+        inputs[base + 1] = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][1]);
+        inputs[base + 2] = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][2]);
         inputs[base + 3] =
             inputs[base] * 0.2126F + inputs[base + 1] * 0.7152F + inputs[base + 2] * 0.0722F;
     }

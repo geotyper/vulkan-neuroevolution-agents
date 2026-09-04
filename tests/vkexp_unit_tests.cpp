@@ -3,6 +3,7 @@
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
+#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/Sensors.hpp"
 
 #include <cmath>
@@ -194,6 +195,39 @@ void testMultimodalSensors() {
     check(closeTo(inputs[tactile + 7 * 2 + 1], 0.8F), "Agent tactile sector mapping");
 }
 
+void testWorldAndBeaconScenarios() {
+    check(closeTo(vkexp::worldRadiusForSize(vkexp::WorldSize::Small), 1.84F), "Small world radius");
+    check(closeTo(vkexp::worldRadiusForSize(vkexp::WorldSize::Medium), 1.84F * 1.5F),
+          "Medium world radius");
+    check(closeTo(vkexp::worldRadiusForSize(vkexp::WorldSize::Large), 1.84F * 3.0F),
+          "Large world radius");
+
+    vkexp::AgentState agent{};
+    agent.target = {1.0F, 0.5F, 2.0F, 0.0F};
+    vkexp::SimulationStep settings{};
+    const vkexp::ActiveBeacons stationary = vkexp::activeBeacons(agent, settings);
+    check(stationary.count == 1 && closeTo(stationary.values[0].position.x, 1.0F) &&
+              closeTo(stationary.values[0].position.y, 0.5F),
+          "Stationary beacon uses the trial target");
+
+    settings.beaconScenario = vkexp::BeaconScenario::AlternatingDiagonals;
+    settings.beaconPhase = 0;
+    const vkexp::ActiveBeacons firstDiagonal = vkexp::activeBeacons(agent, settings);
+    settings.beaconPhase = 1;
+    const vkexp::ActiveBeacons secondDiagonal = vkexp::activeBeacons(agent, settings);
+    check(firstDiagonal.count == 2 &&
+              firstDiagonal.values[0].position.x * firstDiagonal.values[0].position.y > 0.0F &&
+              firstDiagonal.values[1].position.x * firstDiagonal.values[1].position.y > 0.0F,
+          "First beacon pair occupies one diagonal");
+    check(secondDiagonal.count == 2 &&
+              secondDiagonal.values[0].position.x * secondDiagonal.values[0].position.y < 0.0F &&
+              secondDiagonal.values[1].position.x * secondDiagonal.values[1].position.y < 0.0F,
+          "Second beacon pair occupies the opposite diagonal");
+    check(vkexp::beaconPhaseForStep(vkexp::BeaconScenario::AlternatingDiagonals, 449, 900) == 0 &&
+              vkexp::beaconPhaseForStep(vkexp::BeaconScenario::AlternatingDiagonals, 450, 900) == 1,
+          "Beacon diagonal changes at the generation midpoint");
+}
+
 void testGeneticAlgorithm() {
     const vkexp::EvolutionSettings settings{8, 2, 3, 0.5F, 0.1F, 0.2F, 42U};
     vkexp::GeneticAlgorithm evolution{settings};
@@ -217,6 +251,7 @@ int main() {
     testPingPongState();
     testNeuralNetworkContract();
     testMultimodalSensors();
+    testWorldAndBeaconScenarios();
     testGeneticAlgorithm();
     return failures == 0 ? 0 : 1;
 }

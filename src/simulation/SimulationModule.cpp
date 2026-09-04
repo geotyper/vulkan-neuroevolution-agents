@@ -2,6 +2,7 @@
 
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/profiling/Profiler.hpp"
+#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
 
 #include <algorithm>
@@ -71,10 +72,12 @@ void SimulationModule::createGpuResources(AppContext& context) {
     genomeBuffer_.create(physicalDevice, device,
                          {genomeBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, hostMemory});
 
-    gridWidth_ =
-        static_cast<std::uint32_t>(std::ceil((state_.physics.worldRadius * 2.0F) / gridCellSize));
-    gridCellsPerTrial_ = gridWidth_ * gridWidth_;
-    const VkDeviceSize gridHeadBytes = sizeof(std::int32_t) * gridCellsPerTrial_ * trialsPerGenome;
+    updateGridDimensions();
+    const auto maximumGridWidth = static_cast<std::uint32_t>(
+        std::ceil((worldRadiusForSize(WorldSize::Large) * 2.0F) / gridCellSize));
+    const std::uint32_t maximumGridCellsPerTrial = maximumGridWidth * maximumGridWidth;
+    const VkDeviceSize gridHeadBytes =
+        sizeof(std::int32_t) * maximumGridCellsPerTrial * trialsPerGenome;
     const VkDeviceSize gridLinkBytes = sizeof(std::int32_t) * agentCount;
     gridHeads_.create(physicalDevice, device, {gridHeadBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
     gridNext_.create(physicalDevice, device, {gridLinkBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
@@ -149,10 +152,10 @@ void SimulationModule::createGpuResources(AppContext& context) {
 std::vector<AgentState> SimulationModule::makeInitialAgents() const {
     const std::size_t genomeCount = evolution_.population().size();
     std::vector<AgentState> result(genomeCount * trialsPerGenome);
-    constexpr std::array<Float4, trialsPerGenome> targets{
-        Float4{1.28F, 0.96F, 0.0F, 0.0F}, Float4{-1.40F, 0.70F, 0.0F, 0.0F},
-        Float4{-0.96F, -1.32F, 0.0F, 0.0F}, Float4{1.36F, -0.92F, 0.0F, 0.0F}};
     constexpr float goldenAngle = 2.39996323F;
+    SimulationStep initialSettings = state_.physics;
+    initialSettings.beaconPhase = 0;
+    initialSettings.beaconPhaseChanged = false;
     for (std::size_t genome = 0; genome < genomeCount; ++genome) {
         const float normalizedRadius =
             std::sqrt((static_cast<float>(genome) + 0.5F) / static_cast<float>(genomeCount));
@@ -168,11 +171,10 @@ std::vector<AgentState> SimulationModule::makeInitialAgents() const {
                           std::sin(positionAngle) * spawnRadius, heading, 0.022F};
             agent.motion.w = 1.0F;
             agent.signal = {0.15F, 0.45F, 0.85F, 0.0F};
-            agent.target = {targets[trial].x, targets[trial].y, static_cast<float>(trial),
-                            static_cast<float>(genome)};
-            const float dx = agent.target.x - agent.pose.x;
-            const float dy = agent.target.y - agent.pose.y;
-            const float distance = std::sqrt(dx * dx + dy * dy);
+            const Float4 target = stationaryBeaconPosition(static_cast<std::uint32_t>(trial),
+                                                           state_.physics.worldRadius);
+            agent.target = {target.x, target.y, static_cast<float>(trial), 0.0F};
+            const float distance = nearestBeaconDistance(agent, initialSettings);
             agent.metrics = {distance, distance, 0.0F, 0.0F};
             result[index] = agent;
         }
@@ -205,12 +207,12 @@ void SimulationModule::resetGeneration() {
 void SimulationModule::finishGeneration() {
     agentBuffers_.read().read(agents_.data(), agents_.size() * sizeof(AgentState));
     std::vector<float> fitness(evolution_.population().size());
-    std::size_t arrivals = 0;
+    std::size_t completedPhases = 0;
     for (std::size_t genome = 0; genome < fitness.size(); ++genome) {
         for (std::size_t trial = 0; trial < trialsPerGenome; ++trial) {
             const AgentState& agent = agents_[genome * trialsPerGenome + trial];
             fitness[genome] += agentFitness(agent);
-            arrivals += agent.metrics.w > 0.5F ? 1U : 0U;
+            completedPhases += completedBeaconPhases(agent);
         }
         fitness[genome] /= static_cast<float>(trialsPerGenome);
     }
@@ -218,8 +220,10 @@ void SimulationModule::finishGeneration() {
     state_.statistics.bestFitness = summary.bestFitness;
     state_.statistics.meanFitness = summary.meanFitness;
     state_.statistics.medianFitness = summary.medianFitness;
+    const std::size_t phasesPerAgent =
+        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals ? 2U : 1U;
     state_.statistics.arrivalRatio =
-        static_cast<float>(arrivals) / static_cast<float>(agents_.size());
+        static_cast<float>(completedPhases) / static_cast<float>(agents_.size() * phasesPerAgent);
     const auto appendHistory = [&](std::vector<float>& history, const float value) {
         history.push_back(value);
         if (history.size() > state_.history.maximumSamples) {
@@ -235,7 +239,18 @@ void SimulationModule::finishGeneration() {
     resetGeneration();
 }
 
-GpuStepParameters SimulationModule::stepParameters() const {
+void SimulationModule::updateGridDimensions() {
+    gridWidth_ =
+        static_cast<std::uint32_t>(std::ceil((state_.physics.worldRadius * 2.0F) / gridCellSize));
+    gridCellsPerTrial_ = gridWidth_ * gridWidth_;
+}
+
+GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generationStep) const {
+    const std::uint32_t beaconPhase = beaconPhaseForStep(
+        state_.physics.beaconScenario, generationStep, state_.controls.stepsPerGeneration);
+    const bool phaseChanged =
+        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals &&
+        generationStep == state_.controls.stepsPerGeneration / 2;
     return {state_.physics.deltaTime,
             state_.physics.worldRadius,
             state_.physics.thrust,
@@ -259,7 +274,11 @@ GpuStepParameters SimulationModule::stepParameters() const {
             gridWidth_,
             gridCellsPerTrial_,
             state_.physics.agentCollisionsEnabled ? 1U : 0U,
-            state_.physics.agentLightEnabled ? 1U : 0U};
+            state_.physics.agentLightEnabled ? 1U : 0U,
+            static_cast<std::uint32_t>(state_.physics.beaconScenario),
+            beaconPhase,
+            phaseChanged ? 1U : 0U,
+            0U};
 }
 
 void SimulationModule::onUpdate(AppContext& context, const FrameInfo&) {
@@ -271,6 +290,7 @@ void SimulationModule::onUpdate(AppContext& context, const FrameInfo&) {
         state_.history.medianFitness.clear();
         state_.history.meanFitness.clear();
         state_.history.arrivalRatio.clear();
+        updateGridDimensions();
         resetGeneration();
         state_.controls.resetRequested = false;
     } else if (finishPending_) {
@@ -308,7 +328,6 @@ void SimulationModule::onRender(AppContext& context, const FrameInfo&) {
         hostUploadPending_ = false;
     }
 
-    const GpuStepParameters parameters = stepParameters();
     const GridBuildParameters gridParameters{state_.physics.worldRadius,
                                              gridCellSize,
                                              state_.agents.agentCount,
@@ -332,7 +351,7 @@ void SimulationModule::onRender(AppContext& context, const FrameInfo&) {
                                                  gridHeads_.size(), gridNext_.size()};
     const DispatchSize stepGroups = checkedDispatchSize(
         context.vulkan.physicalDevice(),
-        {{state_.agents.agentCount, 1, 1}, {64, 1, 1}, sizeof(parameters), stepRanges});
+        {{state_.agents.agentCount, 1, 1}, {64, 1, 1}, sizeof(GpuStepParameters), stepRanges});
 
     for (std::uint32_t step = 0; step < stepCount; ++step) {
         cmdBufferBarrier(commands, gridHeads_.buffer(), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -371,6 +390,7 @@ void SimulationModule::onRender(AppContext& context, const FrameInfo&) {
         const VkDescriptorSet stepSet = stepDescriptorSets_[readIndex];
         vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, stepPipeline_.layout(), 0,
                                 1, &stepSet, 0, nullptr);
+        const GpuStepParameters parameters = stepParameters(state_.statistics.step + step);
         vkCmdPushConstants(commands, stepPipeline_.layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
                            sizeof(parameters), &parameters);
         vkCmdDispatch(commands, stepGroups.x, 1, 1);

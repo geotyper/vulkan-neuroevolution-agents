@@ -64,12 +64,46 @@ layout(push_constant) uniform StepParameters {
     uint gridCellsPerTrial;
     uint agentCollisionsEnabled;
     uint agentLightEnabled;
+    uint beaconScenario;
+    uint beaconPhase;
+    uint beaconPhaseChanged;
+    uint reservedUint;
 } params;
 
-vec3 beaconColor(uint trial) {
+vec3 paletteColor(uint index) {
     const vec3 colors[4] = vec3[](vec3(0.20, 0.85, 1.00), vec3(1.00, 0.35, 0.75),
                                   vec3(0.55, 1.00, 0.35), vec3(1.00, 0.72, 0.20));
-    return colors[trial % 4];
+    return colors[index % 4];
+}
+
+uint activeBeaconCount() {
+    return params.beaconScenario == 0 ? 1 : 2;
+}
+
+vec2 activeBeaconPosition(Agent agent, uint beaconIndex) {
+    if (params.beaconScenario == 0) {
+        return agent.target.xy;
+    }
+    const float offset = params.worldRadius * 0.62;
+    if (params.beaconPhase == 0) {
+        return beaconIndex == 0 ? vec2(-offset, -offset) : vec2(offset, offset);
+    }
+    return beaconIndex == 0 ? vec2(-offset, offset) : vec2(offset, -offset);
+}
+
+vec3 activeBeaconColor(uint beaconIndex, uint trial) {
+    if (params.beaconScenario == 0) {
+        return paletteColor(trial);
+    }
+    return paletteColor(params.beaconPhase * 2 + beaconIndex);
+}
+
+float nearestBeaconDistance(Agent agent, vec2 position) {
+    float nearest = params.worldRadius * 4.0;
+    for (uint beaconIndex = 0; beaconIndex < activeBeaconCount(); ++beaconIndex) {
+        nearest = min(nearest, length(activeBeaconPosition(agent, beaconIndex) - position));
+    }
+    return nearest;
 }
 
 float rangeFalloff(float distanceToLight) {
@@ -123,23 +157,32 @@ void main() {
         radiance[receptor] = vec3(0.0);
     }
 
-    const vec2 toBeacon = agent.target.xy - agent.pose.xy;
-    const float beaconDistanceSquared = dot(toBeacon, toBeacon);
-    const float beaconDistance = sqrt(max(beaconDistanceSquared, 1.0e-8));
-    const vec2 beaconDirection = toBeacon / beaconDistance;
-    const float normalizedDistanceSquared =
-        beaconDistanceSquared / (params.worldRadius * params.worldRadius);
-    const float beaconAttenuation = 1.0 / (1.0 + normalizedDistanceSquared * 2.0);
-    const float beaconFalloff = rangeFalloff(beaconDistance);
     vec2 receptorDirections[LightReceptorCount];
     for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
         const float fraction = float(receptor) / float(LightReceptorCount - 1);
         const float sensorAngle =
             agent.pose.z + (fraction - 0.5) * params.sensorFieldOfView;
         receptorDirections[receptor] = vec2(cos(sensorAngle), sin(sensorAngle));
-        const float alignment = max(dot(receptorDirections[receptor], beaconDirection), 0.0);
-        radiance[receptor] += beaconColor(trial) * pow(alignment, 12.0) *
-                              beaconAttenuation * beaconFalloff;
+    }
+    for (uint beaconIndex = 0; beaconIndex < activeBeaconCount(); ++beaconIndex) {
+        const vec2 toBeacon = activeBeaconPosition(agent, beaconIndex) - agent.pose.xy;
+        const float beaconDistanceSquared = dot(toBeacon, toBeacon);
+        const float beaconDistance = sqrt(max(beaconDistanceSquared, 1.0e-8));
+        const vec2 beaconDirection = toBeacon / beaconDistance;
+        const float normalizedDistanceSquared =
+            beaconDistanceSquared / (params.worldRadius * params.worldRadius);
+        const float beaconAttenuation = 1.0 / (1.0 + normalizedDistanceSquared * 2.0);
+        const float beaconFalloff = rangeFalloff(beaconDistance);
+        for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+            const float alignment = max(dot(receptorDirections[receptor], beaconDirection), 0.0);
+            radiance[receptor] += activeBeaconColor(beaconIndex, trial) *
+                                  pow(alignment, 12.0) * beaconAttenuation * beaconFalloff;
+        }
+    }
+    if (params.beaconScenario != 0 && params.beaconPhaseChanged != 0) {
+        agent.metrics.w += agent.metrics.x - agent.metrics.y;
+        agent.metrics.x = nearestBeaconDistance(agent, agent.pose.xy);
+        agent.metrics.y = agent.metrics.x;
     }
 
     vec2 positionCorrection = vec2(0.0);
@@ -326,11 +369,13 @@ void main() {
     agent.motion.w = max(0.0, agent.motion.w - motorCost * 0.0008 - signalCost * 0.0008);
     agent.signal = vec4(outputs[2] * 0.5 + 0.5, outputs[3] * 0.5 + 0.5,
                         outputs[4] * 0.5 + 0.5, signalIntensity);
-    const float distance = length(agent.target.xy - agent.pose.xy);
+    const float distance = nearestBeaconDistance(agent, agent.pose.xy);
     agent.metrics.y = min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;
     if (distance < params.arrivalRadius) {
-        agent.metrics.w = 1.0;
+        const uint completedMask = uint(max(agent.target.w, 0.0) + 0.5) |
+                                   (1u << params.beaconPhase);
+        agent.target.w = float(completedMask);
     }
     outputAgents[id] = agent;
 }

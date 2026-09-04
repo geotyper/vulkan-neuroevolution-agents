@@ -115,6 +115,7 @@ vkexp_enable_warnings(vkexp_compute)
 
 add_library(vkneuro_domain STATIC
     src/neuro/NeuralNetwork.cpp
+    src/simulation/Beacons.cpp
     src/simulation/Sensors.cpp
     src/simulation/CpuSimulation.cpp
     src/evolution/GeneticAlgorithm.cpp
