@@ -19,7 +19,7 @@ SimulationState
      |
 CPU generation boundary: fitness -> GA -> genomes/initial agents
      |
-GPU per-step: receptors -> dense brain -> motors/signals -> physics
+GPU per-step: spatial grid -> RGB/touch receptors -> brain -> collisions/physics
      |
 storage barrier
      |
@@ -61,9 +61,11 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 ### 3. Geometry and navigation
 
 - [ ] world interface for circles, segments, and material properties;
-- [ ] GPU spatial grid or BVH for sensor ray queries;
+- [ ] extend the spatial grid with wall segments and ray queries;
 - [ ] wall distance/type receptor channels;
-- [ ] collision and occlusion parity tests;
+- [x] per-trial GPU spatial grid for agent queries;
+- [x] circle-circle collision and tactile interaction tests;
+- [ ] wall-ray and occlusion parity tests;
 - [ ] procedural maze trials with train/evaluation seed separation.
 
 ### 4. Memory and task switching
@@ -75,8 +77,9 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 
 ### 5. Emergent communication
 
-- [ ] spatially accelerated RGB perception of nearby agents;
-- [ ] signal energy cost and wall occlusion;
+- [x] spatially accelerated additive RGB perception of nearby agents;
+- [x] signal energy cost;
+- [ ] wall occlusion;
 - [ ] family/colony fitness and related genome batches;
 - [ ] signal-off ablation to prove communication affects fitness;
 - [ ] multiple colonies and optional interception of foreign signals.

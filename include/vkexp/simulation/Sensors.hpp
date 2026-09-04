@@ -5,10 +5,9 @@
 
 namespace vkexp {
 
-// Pure CPU sensor model matching agent_step.comp. Keeping perception outside
-// the neural network makes later wall, sound, pheromone, or spatial-grid
-// implementations replaceable without changing the brain representation.
-[[nodiscard]] neuro::Inputs samplePhotoreceptors(const AgentState& agent,
-                                                 const SimulationStep& settings);
+// Pure CPU reference matching the isolated-agent path in agent_step.comp.
+// Inter-agent radiance is supplied by the GPU spatial-grid pass at runtime.
+[[nodiscard]] neuro::Inputs sampleAgentInputs(const AgentState& agent,
+                                              const SimulationStep& settings);
 
 } // namespace vkexp

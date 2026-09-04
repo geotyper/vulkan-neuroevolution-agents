@@ -33,7 +33,7 @@ void AgentRenderer::onAttach(AppContext& context) {
 }
 
 void AgentRenderer::createPipeline(AppContext& context) {
-    if (state_.agents.buffer == VK_NULL_HANDLE) {
+    if (state_.agents.buffers[0] == VK_NULL_HANDLE || state_.agents.buffers[1] == VK_NULL_HANDLE) {
         throw std::logic_error("AgentRenderer requires SimulationModule to be attached first");
     }
     const VkDevice device = context.vulkan.device();
@@ -50,12 +50,14 @@ void AgentRenderer::createPipeline(AppContext& context) {
                                     descriptorSetLayout_.put(device)) != VK_SUCCESS) {
         throw std::runtime_error("Unable to create agent renderer descriptor layout");
     }
-    descriptorAllocator_.create(device, {1, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}}});
-    descriptorSet_ = descriptorAllocator_.allocate(descriptorSetLayout_.get());
-    DescriptorSetWriter{}
-        .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, state_.agents.buffer, 0,
-                     state_.agents.size)
-        .update(device, descriptorSet_);
+    descriptorAllocator_.create(device, {2, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}}});
+    for (std::size_t index = 0; index < descriptorSets_.size(); ++index) {
+        descriptorSets_[index] = descriptorAllocator_.allocate(descriptorSetLayout_.get());
+        DescriptorSetWriter{}
+            .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, state_.agents.buffers[index], 0,
+                         state_.agents.size)
+            .update(device, descriptorSets_[index]);
+    }
 
     VkPushConstantRange pushRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawParameters)};
     const VkDescriptorSetLayout setLayout = descriptorSetLayout_.get();
@@ -209,8 +211,9 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     vkCmdSetViewport(commands, 0, 1, &viewport);
     vkCmdSetScissor(commands, 0, 1, &scissor);
     vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
+    const VkDescriptorSet descriptorSet = descriptorSets_[state_.agents.currentIndex];
     vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_.get(), 0, 1,
-                            &descriptorSet_, 0, nullptr);
+                            &descriptorSet, 0, nullptr);
     const float aspect = static_cast<float>(state_.viewport.extent.width) /
                          static_cast<float>(state_.viewport.extent.height);
     const float baseScale = 0.94F / state_.physics.worldRadius;
@@ -241,7 +244,7 @@ void AgentRenderer::onDetach(AppContext&) {
     pipelineLayout_.reset();
     descriptorAllocator_.reset();
     descriptorSetLayout_.reset();
-    descriptorSet_ = VK_NULL_HANDLE;
+    descriptorSets_ = {};
 }
 
 } // namespace vkexp

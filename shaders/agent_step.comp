@@ -2,10 +2,14 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-const uint ReceptorCount = 7;
-const uint InputCount = 10;
-const uint HiddenCount = 12;
+const uint LightReceptorCount = 7;
+const uint LightChannels = 4;
+const uint TactileSectorCount = 8;
+const uint TactileChannels = 2;
+const uint InputCount = 48;
+const uint HiddenCount = 20;
 const uint OutputCount = 6;
+const float Tau = 6.28318530718;
 
 struct Agent {
     vec4 pose;
@@ -13,14 +17,26 @@ struct Agent {
     vec4 signal;
     vec4 target;
     vec4 metrics;
+    vec4 wallTouch0;
+    vec4 wallTouch1;
+    vec4 agentTouch0;
+    vec4 agentTouch1;
 };
 
-layout(std430, set = 0, binding = 0) buffer Agents {
-    Agent agents[];
+layout(std430, set = 0, binding = 0) readonly buffer InputAgents {
+    Agent inputAgents[];
 };
-
-layout(std430, set = 0, binding = 1) readonly buffer GenomeWeights {
+layout(std430, set = 0, binding = 1) writeonly buffer OutputAgents {
+    Agent outputAgents[];
+};
+layout(std430, set = 0, binding = 2) readonly buffer GenomeWeights {
     float weights[];
+};
+layout(std430, set = 0, binding = 3) readonly buffer GridHeads {
+    int gridHeads[];
+};
+layout(std430, set = 0, binding = 4) readonly buffer GridLinks {
+    int gridNext[];
 };
 
 layout(push_constant) uniform StepParameters {
@@ -34,13 +50,65 @@ layout(push_constant) uniform StepParameters {
     float arrivalRadius;
     float maximumSpeed;
     float maximumAngularSpeed;
-    float reservedFloat0;
-    float reservedFloat1;
+    float lightSensorRange;
+    float lightExposure;
+    float collisionRestitution;
+    float collisionStiffness;
+    float gridCellSize;
+    float reservedFloat;
     uint agentCount;
     uint weightsPerGenome;
     uint trialsPerGenome;
     uint worldShape;
+    uint gridWidth;
+    uint gridCellsPerTrial;
+    uint agentCollisionsEnabled;
+    uint agentLightEnabled;
 } params;
+
+vec3 beaconColor(uint trial) {
+    const vec3 colors[4] = vec3[](vec3(0.20, 0.85, 1.00), vec3(1.00, 0.35, 0.75),
+                                  vec3(0.55, 1.00, 0.35), vec3(1.00, 0.72, 0.20));
+    return colors[trial % 4];
+}
+
+float rangeFalloff(float distanceToLight) {
+    const float fade =
+        clamp((params.lightSensorRange - distanceToLight) /
+                  (params.lightSensorRange * 0.25),
+              0.0, 1.0);
+    return fade * fade * (3.0 - 2.0 * fade);
+}
+
+ivec2 gridCoordinate(vec2 position) {
+    return clamp(ivec2(floor((position + vec2(params.worldRadius)) / params.gridCellSize)),
+                 ivec2(0), ivec2(int(params.gridWidth) - 1));
+}
+
+void recordTouch(inout Agent agent, uint sector, float strength, bool wall) {
+    strength = clamp(strength, 0.0, 1.0);
+    if (wall) {
+        if (sector < 4) {
+            agent.wallTouch0[sector] = max(agent.wallTouch0[sector], strength);
+        } else {
+            agent.wallTouch1[sector - 4] = max(agent.wallTouch1[sector - 4], strength);
+        }
+    } else {
+        if (sector < 4) {
+            agent.agentTouch0[sector] = max(agent.agentTouch0[sector], strength);
+        } else {
+            agent.agentTouch1[sector - 4] = max(agent.agentTouch1[sector - 4], strength);
+        }
+    }
+}
+
+uint contactSector(vec2 direction, float agentAngle) {
+    float relative = mod(atan(direction.y, direction.x) - agentAngle + Tau / 16.0, Tau);
+    if (relative < 0.0) {
+        relative += Tau;
+    }
+    return uint(relative / Tau * 8.0) % 8;
+}
 
 void main() {
     const uint id = gl_GlobalInvocationID.x;
@@ -48,25 +116,126 @@ void main() {
         return;
     }
 
-    Agent agent = agents[id];
-    float inputs[InputCount];
-    const vec2 toLight = agent.target.xy - agent.pose.xy;
-    const float distanceSquared = dot(toLight, toLight);
-    const vec2 lightDirection = toLight * inversesqrt(max(distanceSquared, 1.0e-8));
+    Agent agent = inputAgents[id];
+    const uint trial = id % params.trialsPerGenome;
+    vec3 radiance[LightReceptorCount];
+    for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+        radiance[receptor] = vec3(0.0);
+    }
+
+    const vec2 toBeacon = agent.target.xy - agent.pose.xy;
+    const float beaconDistanceSquared = dot(toBeacon, toBeacon);
+    const float beaconDistance = sqrt(max(beaconDistanceSquared, 1.0e-8));
+    const vec2 beaconDirection = toBeacon / beaconDistance;
     const float normalizedDistanceSquared =
-        distanceSquared / (params.worldRadius * params.worldRadius);
-    const float attenuation = 1.0 / (1.0 + normalizedDistanceSquared * 2.0);
-    for (uint receptor = 0; receptor < ReceptorCount; ++receptor) {
-        const float fraction = float(receptor) / float(ReceptorCount - 1);
+        beaconDistanceSquared / (params.worldRadius * params.worldRadius);
+    const float beaconAttenuation = 1.0 / (1.0 + normalizedDistanceSquared * 2.0);
+    const float beaconFalloff = rangeFalloff(beaconDistance);
+    vec2 receptorDirections[LightReceptorCount];
+    for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+        const float fraction = float(receptor) / float(LightReceptorCount - 1);
         const float sensorAngle =
             agent.pose.z + (fraction - 0.5) * params.sensorFieldOfView;
-        const vec2 direction = vec2(cos(sensorAngle), sin(sensorAngle));
-        const float alignment = max(dot(direction, lightDirection), 0.0);
-        inputs[receptor] = pow(alignment, 12.0) * attenuation;
+        receptorDirections[receptor] = vec2(cos(sensorAngle), sin(sensorAngle));
+        const float alignment = max(dot(receptorDirections[receptor], beaconDirection), 0.0);
+        radiance[receptor] += beaconColor(trial) * pow(alignment, 12.0) *
+                              beaconAttenuation * beaconFalloff;
     }
-    inputs[7] = clamp(length(agent.motion.xy) * 0.5, 0.0, 1.0);
-    inputs[8] = clamp(agent.motion.z / 3.0, -1.0, 1.0);
-    inputs[9] = clamp(agent.motion.w, 0.0, 1.0);
+
+    vec2 positionCorrection = vec2(0.0);
+    vec2 collisionVelocity = vec2(0.0);
+    agent.wallTouch0 = vec4(0.0);
+    agent.wallTouch1 = vec4(0.0);
+    agent.agentTouch0 = vec4(0.0);
+    agent.agentTouch1 = vec4(0.0);
+    const ivec2 centerCell = gridCoordinate(agent.pose.xy);
+    const int cellReach = int(ceil(params.lightSensorRange / params.gridCellSize));
+    for (int offsetY = -cellReach; offsetY <= cellReach; ++offsetY) {
+        for (int offsetX = -cellReach; offsetX <= cellReach; ++offsetX) {
+            const ivec2 cell = centerCell + ivec2(offsetX, offsetY);
+            if (any(lessThan(cell, ivec2(0))) ||
+                any(greaterThanEqual(cell, ivec2(int(params.gridWidth))))) {
+                continue;
+            }
+            const uint cellIndex = trial * params.gridCellsPerTrial +
+                                   uint(cell.y) * params.gridWidth + uint(cell.x);
+            int otherId = gridHeads[cellIndex];
+            uint guard = 0;
+            while (otherId >= 0 && guard++ < params.agentCount) {
+                if (uint(otherId) != id) {
+                    const Agent other = inputAgents[otherId];
+                    const vec2 toOther = other.pose.xy - agent.pose.xy;
+                    const float distanceSquared = dot(toOther, toOther);
+                    const float distanceToOther = sqrt(max(distanceSquared, 1.0e-8));
+                    const vec2 directionToOther =
+                        distanceSquared > 1.0e-8
+                            ? toOther / distanceToOther
+                            : vec2(id < uint(otherId) ? 1.0 : -1.0, 0.0);
+                    if (params.agentLightEnabled != 0 &&
+                        distanceToOther <= params.lightSensorRange && other.signal.a > 0.0) {
+                        const float relativeDistance = distanceToOther / params.lightSensorRange;
+                        const float attenuation =
+                            rangeFalloff(distanceToOther) /
+                            (1.0 + relativeDistance * relativeDistance * 8.0);
+                        for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+                            const float alignment =
+                                max(dot(receptorDirections[receptor], directionToOther), 0.0);
+                            radiance[receptor] += other.signal.rgb * other.signal.a * 0.02 *
+                                                  pow(alignment, 12.0) * attenuation;
+                        }
+                    }
+
+                    const float contactDistance = agent.pose.w + other.pose.w;
+                    if (params.agentCollisionsEnabled != 0 &&
+                        distanceToOther < contactDistance) {
+                        const vec2 normal = -directionToOther;
+                        const float penetration = contactDistance - distanceToOther;
+                        positionCorrection +=
+                            normal * penetration * 0.5 * params.collisionStiffness;
+                        const float relativeNormalSpeed =
+                            dot(agent.motion.xy - other.motion.xy, normal);
+                        if (relativeNormalSpeed < 0.0) {
+                            collisionVelocity += normal *
+                                (-(1.0 + params.collisionRestitution) *
+                                 relativeNormalSpeed * 0.5);
+                        }
+                        const float strength = 0.25 + penetration / contactDistance +
+                                               max(-relativeNormalSpeed, 0.0) /
+                                                   params.maximumSpeed;
+                        recordTouch(agent, contactSector(directionToOther, agent.pose.z), strength,
+                                    false);
+                    }
+                }
+                otherId = gridNext[otherId];
+            }
+        }
+    }
+
+    float inputs[InputCount];
+    for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+        const vec3 observed = vec3(1.0) - exp(-params.lightExposure * radiance[receptor]);
+        const uint base = receptor * LightChannels;
+        inputs[base] = observed.r;
+        inputs[base + 1] = observed.g;
+        inputs[base + 2] = observed.b;
+        inputs[base + 3] = dot(observed, vec3(0.2126, 0.7152, 0.0722));
+    }
+    const uint tactileOffset = LightReceptorCount * LightChannels;
+    for (uint sector = 0; sector < TactileSectorCount; ++sector) {
+        const uint component = sector % 4;
+        inputs[tactileOffset + sector * TactileChannels] =
+            sector < 4 ? inputAgents[id].wallTouch0[component]
+                       : inputAgents[id].wallTouch1[component];
+        inputs[tactileOffset + sector * TactileChannels + 1] =
+            sector < 4 ? inputAgents[id].agentTouch0[component]
+                       : inputAgents[id].agentTouch1[component];
+    }
+    const uint selfOffset = tactileOffset + TactileSectorCount * TactileChannels;
+    inputs[selfOffset] = clamp(length(agent.motion.xy) / params.maximumSpeed, 0.0, 1.0);
+    inputs[selfOffset + 1] =
+        clamp(agent.motion.z / params.maximumAngularSpeed, -1.0, 1.0);
+    inputs[selfOffset + 2] = clamp(agent.motion.w, 0.0, 1.0);
+    inputs[selfOffset + 3] = clamp(agent.signal.w, 0.0, 1.0);
 
     const uint genome = id / params.trialsPerGenome;
     const uint base = genome * params.weightsPerGenome;
@@ -79,16 +248,14 @@ void main() {
         }
         hidden[neuron] = tanh(activation);
     }
-
     const uint outputWeights = hiddenBias + HiddenCount;
     const uint outputBias = outputWeights + HiddenCount * OutputCount;
     float outputs[OutputCount];
     for (uint neuron = 0; neuron < OutputCount; ++neuron) {
         float activation = weights[base + outputBias + neuron];
         for (uint hiddenIndex = 0; hiddenIndex < HiddenCount; ++hiddenIndex) {
-            activation +=
-                weights[base + outputWeights + neuron * HiddenCount + hiddenIndex] *
-                hidden[hiddenIndex];
+            activation += weights[base + outputWeights + neuron * HiddenCount + hiddenIndex] *
+                          hidden[hiddenIndex];
         }
         outputs[neuron] = tanh(activation);
     }
@@ -101,13 +268,18 @@ void main() {
     agent.motion.xy *= exp(-params.linearDrag * params.deltaTime);
     agent.motion.z += (right - left) * params.turnAcceleration * params.deltaTime;
     agent.motion.z *= exp(-params.angularDrag * params.deltaTime);
+    agent.motion.xy += collisionVelocity;
     const float speed = length(agent.motion.xy);
     if (speed > params.maximumSpeed) {
         agent.motion.xy *= params.maximumSpeed / speed;
     }
     agent.motion.z = clamp(agent.motion.z, -params.maximumAngularSpeed,
                            params.maximumAngularSpeed);
-    agent.pose.xy += agent.motion.xy * params.deltaTime;
+    const float correctionLength = length(positionCorrection);
+    if (correctionLength > agent.pose.w) {
+        positionCorrection *= agent.pose.w / correctionLength;
+    }
+    agent.pose.xy += agent.motion.xy * params.deltaTime + positionCorrection;
     agent.pose.z += agent.motion.z * params.deltaTime;
 
     const float maximumCenterDistance = max(params.worldRadius - agent.pose.w, 0.0);
@@ -120,33 +292,45 @@ void main() {
             if (outward > 0.0) {
                 agent.motion.xy -= normal * outward * 1.5;
             }
+            recordTouch(agent, contactSector(normal, agent.pose.z),
+                        0.25 + max(outward, 0.0) / params.maximumSpeed, true);
         }
     } else {
         if (agent.pose.x > maximumCenterDistance) {
             agent.pose.x = maximumCenterDistance;
+            recordTouch(agent, contactSector(vec2(1.0, 0.0), agent.pose.z),
+                        0.25 + max(agent.motion.x, 0.0) / params.maximumSpeed, true);
             agent.motion.x = min(agent.motion.x, 0.0) - max(agent.motion.x, 0.0) * 0.5;
         } else if (agent.pose.x < -maximumCenterDistance) {
             agent.pose.x = -maximumCenterDistance;
+            recordTouch(agent, contactSector(vec2(-1.0, 0.0), agent.pose.z),
+                        0.25 - min(agent.motion.x, 0.0) / params.maximumSpeed, true);
             agent.motion.x = max(agent.motion.x, 0.0) - min(agent.motion.x, 0.0) * 0.5;
         }
         if (agent.pose.y > maximumCenterDistance) {
             agent.pose.y = maximumCenterDistance;
+            recordTouch(agent, contactSector(vec2(0.0, 1.0), agent.pose.z),
+                        0.25 + max(agent.motion.y, 0.0) / params.maximumSpeed, true);
             agent.motion.y = min(agent.motion.y, 0.0) - max(agent.motion.y, 0.0) * 0.5;
         } else if (agent.pose.y < -maximumCenterDistance) {
             agent.pose.y = -maximumCenterDistance;
+            recordTouch(agent, contactSector(vec2(0.0, -1.0), agent.pose.z),
+                        0.25 - min(agent.motion.y, 0.0) / params.maximumSpeed, true);
             agent.motion.y = max(agent.motion.y, 0.0) - min(agent.motion.y, 0.0) * 0.5;
         }
     }
 
     const float motorCost = (abs(left) + abs(right)) * params.deltaTime;
-    agent.motion.w = max(0.0, agent.motion.w - motorCost * 0.0008);
+    const float signalIntensity = max(outputs[5], 0.0);
+    const float signalCost = signalIntensity * params.deltaTime * 0.25;
+    agent.motion.w = max(0.0, agent.motion.w - motorCost * 0.0008 - signalCost * 0.0008);
     agent.signal = vec4(outputs[2] * 0.5 + 0.5, outputs[3] * 0.5 + 0.5,
-                        outputs[4] * 0.5 + 0.5, max(outputs[5], 0.0));
+                        outputs[4] * 0.5 + 0.5, signalIntensity);
     const float distance = length(agent.target.xy - agent.pose.xy);
     agent.metrics.y = min(agent.metrics.y, distance);
-    agent.metrics.z += motorCost;
+    agent.metrics.z += motorCost + signalCost;
     if (distance < params.arrivalRadius) {
         agent.metrics.w = 1.0;
     }
-    agents[id] = agent;
+    outputAgents[id] = agent;
 }

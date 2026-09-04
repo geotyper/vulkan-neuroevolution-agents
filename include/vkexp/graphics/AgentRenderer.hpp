@@ -5,6 +5,8 @@
 #include "vkexp/profiling/ProfilerTypes.hpp"
 #include "vkexp/simulation/SimulationState.hpp"
 
+#include <array>
+
 namespace vkexp {
 
 class Profiler;
@@ -32,7 +34,7 @@ private:
     ProfileMetricId metric_{invalidProfileMetric};
     UniqueDescriptorSetLayout descriptorSetLayout_;
     DescriptorAllocator descriptorAllocator_;
-    VkDescriptorSet descriptorSet_{};
+    std::array<VkDescriptorSet, 2> descriptorSets_{};
     UniquePipelineLayout pipelineLayout_;
     UniquePipeline pipeline_;
     ImageResource target_;

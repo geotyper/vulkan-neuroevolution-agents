@@ -6,11 +6,32 @@
 #include <cmath>
 
 namespace vkexp {
+namespace {
+
+void setComponent(Float4& value, const std::size_t index, const float contact) {
+    float* components[] = {&value.x, &value.y, &value.z, &value.w};
+    *components[index] = std::max(*components[index], contact);
+}
+
+void recordWallContact(AgentState& agent, const float directionX, const float directionY,
+                       const float strength) {
+    constexpr float tau = 6.28318530718F;
+    constexpr float halfSector = tau / 16.0F;
+    float relative = std::fmod(std::atan2(directionY, directionX) - agent.pose.z + halfSector, tau);
+    if (relative < 0.0F) {
+        relative += tau;
+    }
+    const std::size_t sector = static_cast<std::size_t>(relative / tau * 8.0F) % 8;
+    Float4& contacts = sector < 4 ? agent.wallTouch0 : agent.wallTouch1;
+    setComponent(contacts, sector % 4, std::clamp(strength, 0.0F, 1.0F));
+}
+
+} // namespace
 
 void stepAgentCpu(AgentState& agent,
                   const std::span<const float, neuro::Topology::weightCount> weights,
                   const SimulationStep& settings) {
-    const neuro::Outputs output = neuro::evaluate(weights, samplePhotoreceptors(agent, settings));
+    const neuro::Outputs output = neuro::evaluate(weights, sampleAgentInputs(agent, settings));
     const float left = output[0];
     const float right = output[1];
     const float forwardX = std::cos(agent.pose.z);
@@ -36,6 +57,10 @@ void stepAgentCpu(AgentState& agent,
     agent.pose.x += agent.motion.x * settings.deltaTime;
     agent.pose.y += agent.motion.y * settings.deltaTime;
     agent.pose.z += agent.motion.z * settings.deltaTime;
+    agent.wallTouch0 = {};
+    agent.wallTouch1 = {};
+    agent.agentTouch0 = {};
+    agent.agentTouch1 = {};
 
     const float maximumCenterDistance = std::max(settings.worldRadius - agent.pose.w, 0.0F);
     if (settings.worldShape == WorldShape::Circle) {
@@ -51,34 +76,46 @@ void stepAgentCpu(AgentState& agent,
                 agent.motion.x -= normalX * outward * 1.5F;
                 agent.motion.y -= normalY * outward * 1.5F;
             }
+            recordWallContact(agent, normalX, normalY,
+                              0.25F + std::max(outward, 0.0F) / settings.maximumSpeed);
         }
     } else {
         if (agent.pose.x > maximumCenterDistance) {
             agent.pose.x = maximumCenterDistance;
+            recordWallContact(agent, 1.0F, 0.0F,
+                              0.25F + std::max(agent.motion.x, 0.0F) / settings.maximumSpeed);
             agent.motion.x = std::min(agent.motion.x, 0.0F) - std::max(agent.motion.x, 0.0F) * 0.5F;
         } else if (agent.pose.x < -maximumCenterDistance) {
             agent.pose.x = -maximumCenterDistance;
+            recordWallContact(agent, -1.0F, 0.0F,
+                              0.25F - std::min(agent.motion.x, 0.0F) / settings.maximumSpeed);
             agent.motion.x = std::max(agent.motion.x, 0.0F) - std::min(agent.motion.x, 0.0F) * 0.5F;
         }
         if (agent.pose.y > maximumCenterDistance) {
             agent.pose.y = maximumCenterDistance;
+            recordWallContact(agent, 0.0F, 1.0F,
+                              0.25F + std::max(agent.motion.y, 0.0F) / settings.maximumSpeed);
             agent.motion.y = std::min(agent.motion.y, 0.0F) - std::max(agent.motion.y, 0.0F) * 0.5F;
         } else if (agent.pose.y < -maximumCenterDistance) {
             agent.pose.y = -maximumCenterDistance;
+            recordWallContact(agent, 0.0F, -1.0F,
+                              0.25F - std::min(agent.motion.y, 0.0F) / settings.maximumSpeed);
             agent.motion.y = std::max(agent.motion.y, 0.0F) - std::min(agent.motion.y, 0.0F) * 0.5F;
         }
     }
 
     const float motorCost = (std::abs(left) + std::abs(right)) * settings.deltaTime;
-    agent.motion.w = std::max(0.0F, agent.motion.w - motorCost * 0.0008F);
+    const float signalIntensity = std::max(output[5], 0.0F);
+    const float signalCost = signalIntensity * settings.deltaTime * 0.25F;
+    agent.motion.w = std::max(0.0F, agent.motion.w - motorCost * 0.0008F - signalCost * 0.0008F);
     agent.signal = {output[2] * 0.5F + 0.5F, output[3] * 0.5F + 0.5F, output[4] * 0.5F + 0.5F,
-                    std::max(output[5], 0.0F)};
+                    signalIntensity};
 
     const float targetX = agent.target.x - agent.pose.x;
     const float targetY = agent.target.y - agent.pose.y;
     const float distance = std::sqrt(targetX * targetX + targetY * targetY);
     agent.metrics.y = std::min(agent.metrics.y, distance);
-    agent.metrics.z += motorCost;
+    agent.metrics.z += motorCost + signalCost;
     if (distance < settings.arrivalRadius) {
         agent.metrics.w = 1.0F;
     }

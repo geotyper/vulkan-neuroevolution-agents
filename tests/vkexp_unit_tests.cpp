@@ -3,6 +3,7 @@
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
+#include "vkexp/simulation/Sensors.hpp"
 
 #include <cmath>
 #include <exception>
@@ -170,7 +171,27 @@ void testNeuralNetworkContract() {
     for (const float output : outputs) {
         check(closeTo(output, 0.0F), "Zero neural network output");
     }
-    check(vkexp::neuro::Topology::weightCount == 210, "Stable flattened neural weight count");
+    check(vkexp::neuro::Topology::inputCount == 48, "Multimodal neural input count");
+    check(vkexp::neuro::Topology::weightCount == 1106, "Stable flattened neural weight count");
+}
+
+void testMultimodalSensors() {
+    vkexp::AgentState agent{};
+    agent.pose = {0.0F, 0.0F, 0.0F, 0.022F};
+    agent.motion.w = 1.0F;
+    agent.target = {1.0F, 0.0F, 0.0F, 0.0F};
+    agent.wallTouch0.x = 0.7F;
+    agent.agentTouch1.w = 0.8F;
+    const vkexp::SimulationStep settings{};
+    const vkexp::neuro::Inputs inputs = vkexp::sampleAgentInputs(agent, settings);
+    constexpr std::size_t center = 3 * vkexp::neuro::Topology::lightChannelsPerReceptor;
+    check(inputs[center] > 0.0F && inputs[center + 1] > inputs[center],
+          "RGB photoreceptor observes cyan beacon");
+    check(inputs[center + 3] > 0.0F, "Photoreceptor luminance channel");
+    constexpr std::size_t tactile = vkexp::neuro::Topology::lightReceptorCount *
+                                    vkexp::neuro::Topology::lightChannelsPerReceptor;
+    check(closeTo(inputs[tactile], 0.7F), "Wall tactile sector mapping");
+    check(closeTo(inputs[tactile + 7 * 2 + 1], 0.8F), "Agent tactile sector mapping");
 }
 
 void testGeneticAlgorithm() {
@@ -195,6 +216,7 @@ int main() {
     testComputeResourceValidation();
     testPingPongState();
     testNeuralNetworkContract();
+    testMultimodalSensors();
     testGeneticAlgorithm();
     return failures == 0 ? 0 : 1;
 }

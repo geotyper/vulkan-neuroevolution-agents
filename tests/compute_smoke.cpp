@@ -5,12 +5,14 @@
 
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <exception>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -177,19 +179,44 @@ void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
         throw std::runtime_error("CPU agent escaped the selected world boundary");
     }
 
-    vkexp::BufferResource agents;
-    agents.create(context.physicalDevice(), context.device(),
-                  {sizeof(initial), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    vkexp::BufferResource inputAgents;
+    inputAgents.create(
+        context.physicalDevice(), context.device(),
+        {sizeof(initial), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    vkexp::BufferResource outputAgents;
+    outputAgents.create(
+        context.physicalDevice(), context.device(),
+        {sizeof(initial), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT});
     vkexp::BufferResource genomes;
     genomes.create(
         context.physicalDevice(), context.device(),
         {sizeof(weights), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
-    context.immediate().uploadBuffer(agents, &initial, sizeof(initial));
+    constexpr float gridCellSize = 0.12F;
+    const std::uint32_t gridWidth =
+        static_cast<std::uint32_t>(std::ceil(settings.worldRadius * 2.0F / gridCellSize));
+    const std::uint32_t gridCells = gridWidth * gridWidth;
+    std::vector<std::int32_t> heads(gridCells, -1);
+    const auto coordinate = [&](const float position) {
+        return static_cast<std::uint32_t>(
+            std::clamp(std::floor((position + settings.worldRadius) / gridCellSize), 0.0F,
+                       static_cast<float>(gridWidth - 1)));
+    };
+    heads[coordinate(initial.pose.y) * gridWidth + coordinate(initial.pose.x)] = 0;
+    const std::int32_t next = -1;
+    vkexp::BufferResource gridHeads;
+    gridHeads.create(context.physicalDevice(), context.device(),
+                     {heads.size() * sizeof(std::int32_t),
+                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    vkexp::BufferResource gridNext;
+    gridNext.create(
+        context.physicalDevice(), context.device(),
+        {sizeof(next), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    context.immediate().uploadBuffer(inputAgents, &initial, sizeof(initial));
     context.immediate().uploadBuffer(genomes, weights.data(), sizeof(weights));
+    context.immediate().uploadBuffer(gridHeads, heads.data(), heads.size() * sizeof(std::int32_t));
+    context.immediate().uploadBuffer(gridNext, &next, sizeof(next));
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
     for (std::uint32_t binding = 0; binding < bindings.size(); ++binding) {
         bindings[binding].binding = binding;
         bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -205,11 +232,16 @@ void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
         throw std::runtime_error("Unable to create neural parity descriptor layout");
     }
     vkexp::DescriptorAllocator descriptors{context.device(),
-                                           {1, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}}}};
+                                           {1, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5}}}};
     const VkDescriptorSet descriptorSet = descriptors.allocate(setLayout.get());
     vkexp::DescriptorSetWriter{}
-        .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, agents.buffer(), 0, agents.size())
-        .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, genomes.buffer(), 0, genomes.size())
+        .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, inputAgents.buffer(), 0,
+                     inputAgents.size())
+        .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, outputAgents.buffer(), 0,
+                     outputAgents.size())
+        .writeBuffer(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, genomes.buffer(), 0, genomes.size())
+        .writeBuffer(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridHeads.buffer(), 0, gridHeads.size())
+        .writeBuffer(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridNext.buffer(), 0, gridNext.size())
         .update(context.device(), descriptorSet);
     const vkexp::ComputePipeline pipeline =
         vkexp::ComputePipelineBuilder{context.physicalDevice(), context.device()}
@@ -228,12 +260,20 @@ void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
         settings.arrivalRadius,
         settings.maximumSpeed,
         settings.maximumAngularSpeed,
-        0.0F,
+        settings.lightSensorRange,
+        settings.lightExposure,
+        settings.collisionRestitution,
+        settings.collisionStiffness,
+        gridCellSize,
         0.0F,
         1,
         static_cast<std::uint32_t>(vkexp::neuro::Topology::weightCount),
         1,
-        static_cast<std::uint32_t>(worldShape)};
+        static_cast<std::uint32_t>(worldShape),
+        gridWidth,
+        gridCells,
+        settings.agentCollisionsEnabled ? 1U : 0U,
+        settings.agentLightEnabled ? 1U : 0U};
     context.immediate().execute([&](const VkCommandBuffer commands) {
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
         vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout(), 0, 1,
@@ -241,12 +281,13 @@ void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
         vkCmdPushConstants(commands, pipeline.layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
                            sizeof(parameters), &parameters);
         vkCmdDispatch(commands, 1, 1, 1);
-        vkexp::cmdBufferBarrier(commands, agents.buffer(), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        vkexp::cmdBufferBarrier(commands, outputAgents.buffer(),
+                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                 VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                                 VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
     });
     vkexp::AgentState actual{};
-    context.immediate().readbackBuffer(agents, &actual, sizeof(actual));
+    context.immediate().readbackBuffer(outputAgents, &actual, sizeof(actual));
     const auto close = [](const float a, const float b) { return std::abs(a - b) < 0.0002F; };
     const float* expectedValues = reinterpret_cast<const float*>(&expected);
     const float* actualValues = reinterpret_cast<const float*>(&actual);
@@ -260,12 +301,155 @@ void runNeuralStepParity(vkexp::HeadlessComputeContext& context,
     }
 }
 
+void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
+    constexpr std::size_t agentCount = 2;
+    std::array<vkexp::AgentState, agentCount> initial{};
+    initial[0].pose = {-0.01F, 0.0F, 0.0F, 0.022F};
+    initial[1].pose = {0.01F, 0.0F, 3.14159265F, 0.022F};
+    for (std::size_t index = 0; index < agentCount; ++index) {
+        initial[index].motion.w = 1.0F;
+        initial[index].target = {-1.0F, 0.0F, 0.0F, static_cast<float>(index)};
+        initial[index].metrics = {1.0F, 1.0F, 0.0F, 0.0F};
+    }
+    initial[1].signal = {1.0F, 0.0F, 0.0F, 1.0F};
+
+    std::array<vkexp::neuro::Weights, agentCount> genomes{};
+    constexpr std::size_t centerRedInput = 3 * vkexp::neuro::Topology::lightChannelsPerReceptor;
+    constexpr std::size_t outputWeights =
+        vkexp::neuro::Topology::inputCount * vkexp::neuro::Topology::hiddenCount +
+        vkexp::neuro::Topology::hiddenCount;
+    genomes[0][centerRedInput] = 4.0F;
+    genomes[0][outputWeights + 2 * vkexp::neuro::Topology::hiddenCount] = 4.0F;
+
+    vkexp::BufferResource inputAgents;
+    vkexp::BufferResource outputAgents;
+    vkexp::BufferResource genomeBuffer;
+    vkexp::BufferResource gridHeads;
+    vkexp::BufferResource gridNext;
+    const VkDeviceSize agentBytes = sizeof(initial);
+    inputAgents.create(
+        context.physicalDevice(), context.device(),
+        {agentBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    outputAgents.create(
+        context.physicalDevice(), context.device(),
+        {agentBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT});
+    genomeBuffer.create(
+        context.physicalDevice(), context.device(),
+        {sizeof(genomes), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    constexpr float cellSize = 0.12F;
+    const vkexp::SimulationStep settings{};
+    const std::uint32_t gridWidth =
+        static_cast<std::uint32_t>(std::ceil(settings.worldRadius * 2.0F / cellSize));
+    const std::uint32_t gridCells = gridWidth * gridWidth;
+    std::vector<std::int32_t> heads(gridCells, -1);
+    const std::uint32_t center = gridWidth / 2;
+    heads[center * gridWidth + center] = 1;
+    const std::array<std::int32_t, agentCount> links{-1, 0};
+    gridHeads.create(context.physicalDevice(), context.device(),
+                     {heads.size() * sizeof(std::int32_t),
+                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    gridNext.create(
+        context.physicalDevice(), context.device(),
+        {sizeof(links), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    context.immediate().uploadBuffer(inputAgents, initial.data(), agentBytes);
+    context.immediate().uploadBuffer(genomeBuffer, genomes.data(), sizeof(genomes));
+    context.immediate().uploadBuffer(gridHeads, heads.data(), heads.size() * sizeof(std::int32_t));
+    context.immediate().uploadBuffer(gridNext, links.data(), sizeof(links));
+
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+    for (std::uint32_t binding = 0; binding < bindings.size(); ++binding) {
+        bindings[binding].binding = binding;
+        bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[binding].descriptorCount = 1;
+        bindings[binding].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    layoutInfo.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+    vkexp::UniqueDescriptorSetLayout layout;
+    if (vkCreateDescriptorSetLayout(context.device(), &layoutInfo, nullptr,
+                                    layout.put(context.device())) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to create interaction test descriptor layout");
+    }
+    vkexp::DescriptorAllocator descriptors{context.device(),
+                                           {1, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5}}}};
+    const VkDescriptorSet set = descriptors.allocate(layout.get());
+    vkexp::DescriptorSetWriter{}
+        .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, inputAgents.buffer(), 0,
+                     inputAgents.size())
+        .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, outputAgents.buffer(), 0,
+                     outputAgents.size())
+        .writeBuffer(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, genomeBuffer.buffer(), 0,
+                     genomeBuffer.size())
+        .writeBuffer(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridHeads.buffer(), 0, gridHeads.size())
+        .writeBuffer(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridNext.buffer(), 0, gridNext.size())
+        .update(context.device(), set);
+    const vkexp::ComputePipeline pipeline =
+        vkexp::ComputePipelineBuilder{context.physicalDevice(), context.device()}
+            .shader(VKEXP_SHADER_DIR "/agent_step.comp.spv")
+            .addDescriptorSetLayout(layout.get())
+            .addPushConstantRange(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(vkexp::GpuStepParameters))
+            .build();
+    const vkexp::GpuStepParameters parameters{
+        settings.deltaTime,
+        settings.worldRadius,
+        settings.thrust,
+        settings.turnAcceleration,
+        settings.linearDrag,
+        settings.angularDrag,
+        settings.sensorFieldOfView,
+        settings.arrivalRadius,
+        settings.maximumSpeed,
+        settings.maximumAngularSpeed,
+        settings.lightSensorRange,
+        settings.lightExposure,
+        settings.collisionRestitution,
+        settings.collisionStiffness,
+        cellSize,
+        0.0F,
+        static_cast<std::uint32_t>(agentCount),
+        static_cast<std::uint32_t>(vkexp::neuro::Topology::weightCount),
+        1,
+        static_cast<std::uint32_t>(settings.worldShape),
+        gridWidth,
+        gridCells,
+        settings.agentCollisionsEnabled ? 1U : 0U,
+        settings.agentLightEnabled ? 1U : 0U};
+    context.immediate().execute([&](const VkCommandBuffer commands) {
+        vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
+        vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout(), 0, 1,
+                                &set, 0, nullptr);
+        vkCmdPushConstants(commands, pipeline.layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(parameters), &parameters);
+        vkCmdDispatch(commands, 1, 1, 1);
+        vkexp::cmdBufferBarrier(commands, outputAgents.buffer(),
+                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+    });
+    std::array<vkexp::AgentState, agentCount> result{};
+    context.immediate().readbackBuffer(outputAgents, result.data(), sizeof(result));
+    const float initialDistance = initial[1].pose.x - initial[0].pose.x;
+    const float resultDistance = result[1].pose.x - result[0].pose.x;
+    const float firstTouch =
+        std::max({result[0].agentTouch0.x, result[0].agentTouch0.y, result[0].agentTouch0.z,
+                  result[0].agentTouch0.w, result[0].agentTouch1.x, result[0].agentTouch1.y,
+                  result[0].agentTouch1.z, result[0].agentTouch1.w});
+    if (resultDistance <= initialDistance || firstTouch <= 0.0F) {
+        throw std::runtime_error("GPU agents did not separate and report tactile contact");
+    }
+    if (result[0].signal.x <= 0.55F) {
+        throw std::runtime_error("GPU photoreceptor did not observe another agent's red light");
+    }
+}
+
 int run() {
     vkexp::HeadlessComputeContext context{{"vkexp compute smoke"}};
     runGameOfLife(context);
     runImageRoundTrip(context);
     runNeuralStepParity(context, vkexp::WorldShape::Circle);
     runNeuralStepParity(context, vkexp::WorldShape::Square);
+    runAgentInteractionTest(context);
     std::cout << "Headless compute and CPU/GPU neural parity tests passed on "
               << context.deviceName() << '\n';
     return 0;

@@ -5,6 +5,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -35,12 +36,15 @@ struct EvolutionHistory {
 };
 
 struct AgentBufferView {
-    VkBuffer buffer{};
+    std::array<VkBuffer, 2> buffers{};
     VkDeviceSize size{};
+    std::uint32_t currentIndex{};
     std::uint32_t agentCount{};
     std::uint32_t genomeCount{};
     std::uint32_t trialsPerGenome{};
     std::uint64_t generation{};
+
+    [[nodiscard]] VkBuffer currentBuffer() const { return buffers[currentIndex]; }
 };
 
 struct SimulationViewport {

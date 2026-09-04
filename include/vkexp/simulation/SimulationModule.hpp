@@ -6,6 +6,7 @@
 #include "vkexp/profiling/ProfilerTypes.hpp"
 #include "vkexp/simulation/SimulationState.hpp"
 
+#include <array>
 #include <vector>
 
 namespace vkexp {
@@ -28,18 +29,31 @@ private:
     void resetGeneration();
     void finishGeneration();
     void uploadPopulation();
+    [[nodiscard]] GpuStepParameters stepParameters() const;
     [[nodiscard]] std::vector<AgentState> makeInitialAgents() const;
 
     SimulationState& state_;
     GeneticAlgorithm evolution_;
     ProfileMetricId metric_{invalidProfileMetric};
-    BufferResource agentBuffer_;
+    static constexpr float gridCellSize = 0.12F;
+
+    PingPongBuffer agentBuffers_;
     BufferResource genomeBuffer_;
-    UniqueDescriptorSetLayout descriptorSetLayout_;
+    BufferResource gridHeads_;
+    BufferResource gridNext_;
+    UniqueDescriptorSetLayout stepDescriptorSetLayout_;
+    UniqueDescriptorSetLayout gridClearDescriptorSetLayout_;
+    UniqueDescriptorSetLayout gridBuildDescriptorSetLayout_;
     DescriptorAllocator descriptorAllocator_;
-    VkDescriptorSet descriptorSet_{};
-    ComputePipeline pipeline_;
+    std::array<VkDescriptorSet, 2> stepDescriptorSets_{};
+    VkDescriptorSet gridClearDescriptorSet_{};
+    std::array<VkDescriptorSet, 2> gridBuildDescriptorSets_{};
+    ComputePipeline stepPipeline_;
+    ComputePipeline gridClearPipeline_;
+    ComputePipeline gridBuildPipeline_;
     std::vector<AgentState> agents_;
+    std::uint32_t gridWidth_{};
+    std::uint32_t gridCellsPerTrial_{};
     bool finishPending_{};
     bool hostUploadPending_{};
 };

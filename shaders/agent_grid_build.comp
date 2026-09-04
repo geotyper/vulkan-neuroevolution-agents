@@ -1,0 +1,50 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Agent {
+    vec4 pose;
+    vec4 motion;
+    vec4 signal;
+    vec4 target;
+    vec4 metrics;
+    vec4 wallTouch0;
+    vec4 wallTouch1;
+    vec4 agentTouch0;
+    vec4 agentTouch1;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer Agents {
+    Agent agents[];
+};
+layout(std430, set = 0, binding = 1) buffer GridHeads {
+    int gridHeads[];
+};
+layout(std430, set = 0, binding = 2) writeonly buffer GridLinks {
+    int gridNext[];
+};
+
+layout(push_constant) uniform GridParameters {
+    float worldRadius;
+    float cellSize;
+    uint agentCount;
+    uint trialsPerGenome;
+    uint gridWidth;
+    uint gridCellsPerTrial;
+    uint reserved0;
+    uint reserved1;
+} params;
+
+void main() {
+    const uint id = gl_GlobalInvocationID.x;
+    if (id >= params.agentCount) {
+        return;
+    }
+    const ivec2 coordinate = clamp(
+        ivec2(floor((agents[id].pose.xy + vec2(params.worldRadius)) / params.cellSize)),
+        ivec2(0), ivec2(int(params.gridWidth) - 1));
+    const uint trial = id % params.trialsPerGenome;
+    const uint cell = trial * params.gridCellsPerTrial +
+                      uint(coordinate.y) * params.gridWidth + uint(coordinate.x);
+    gridNext[id] = atomicExchange(gridHeads[cell], int(id));
+}

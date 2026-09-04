@@ -7,9 +7,15 @@
 namespace vkexp::neuro {
 
 struct Topology {
-    static constexpr std::size_t receptorCount = 7;
-    static constexpr std::size_t inputCount = 10;
-    static constexpr std::size_t hiddenCount = 12;
+    static constexpr std::size_t lightReceptorCount = 7;
+    static constexpr std::size_t lightChannelsPerReceptor = 4; // RGB + luminance
+    static constexpr std::size_t tactileSectorCount = 8;
+    static constexpr std::size_t tactileChannelsPerSector = 2; // wall + agent
+    static constexpr std::size_t selfInputCount = 4;
+    static constexpr std::size_t inputCount = lightReceptorCount * lightChannelsPerReceptor +
+                                              tactileSectorCount * tactileChannelsPerSector +
+                                              selfInputCount;
+    static constexpr std::size_t hiddenCount = 20;
     static constexpr std::size_t outputCount = 6;
     static constexpr std::size_t weightCount =
         inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + outputCount;

@@ -13,12 +13,16 @@ are separate targets rather than one application-specific module.
 ## Current experiment
 
 - 512 genomes, each evaluated in four trials (2048 GPU agents);
-- 7 light receptors plus speed, angular velocity, and energy inputs;
-- `10 inputs -> 12 tanh neurons -> 6 outputs`;
+- 7 forward light receptors with RGB and luminance channels;
+- 8 full-body tactile sectors distinguishing walls from agents;
+- `48 inputs -> 20 tanh neurons -> 6 outputs`;
 - outputs control left/right motors, RGB emission, and emission intensity;
 - inertial movement with linear/angular drag and hard linear/angular speed
   limits;
 - selectable circular or square world, both twice the original span;
+- circle-circle agent collisions with impulse response and tactile pressure;
+- additive, softly tone-mapped RGB perception of nearby agent signals;
+- runtime ablation switches for agent collisions and agent-light perception;
 - average fitness across trials rewards approach and arrival and penalizes
   motor use;
 - elitism, tournament selection, uniform crossover, Gaussian mutation;
@@ -28,9 +32,11 @@ are separate targets rather than one application-specific module.
 - an off-screen Vulkan renderer with persistent circular bodies, heading
   markers, and independently rendered coloured halos.
 
-Light emission is already part of the genome, agent state, and renderer. Other
-agents do not perceive it yet; that will be added with a spatial acceleration
-structure instead of an O(N²) scan.
+Four trial populations occupy independent logical worlds even though they are
+drawn in one viewport. A per-trial uniform grid limits collision and light
+queries to nearby agents in the same world. Individual fitness does not yet
+reward helping unrelated genomes, so the communication channel is functional
+but meaningful signalling is not expected until colony fitness is introduced.
 
 ## Architecture
 
@@ -44,8 +50,9 @@ vulkan_neuroevolution_agents (composition root)
   |     GeneticAlgorithm      selection/crossover/mutation
   |
   +-- vkneuro_simulation
-  |     SimulationModule      GPU buffers + compute dispatch
-  |     agent_step.comp       sensors + brain + physics
+  |     SimulationModule      ping-pong state + compute orchestration
+  |     agent_grid_*.comp     per-trial spatial acceleration
+  |     agent_step.comp       RGB sensors + brain + collisions + physics
   |
   +-- vkneuro_visualization
   |     AgentRenderer         read-only consumer of the agent SSBO
@@ -61,8 +68,8 @@ The shared contracts are small:
 
 - `SimulationState` carries controls, statistics, the published agent-buffer
   view, and the published viewport image;
-- `AgentState` is an explicitly checked 80-byte std430-compatible structure;
-- `Topology` defines one flattened 210-float weight layout used identically by
+- `AgentState` is an explicitly checked 144-byte std430-compatible structure;
+- `Topology` defines one flattened 1106-float weight layout used identically by
   the CPU evaluator and GLSL shader;
 - module order in `main.cpp` is the composition graph: compute publishes the
   buffer, rendering reads it, and ImGui composites the viewport.
@@ -74,9 +81,10 @@ UI replace its counterpart without changing the application lifecycle.
 
 `vkexp_compute_smoke` creates the same agent and genome on CPU and GPU, advances
 both by one complete sensor/network/physics step, reads the SSBO back, and
-compares every float with a small tolerance. Pure CPU unit tests also cover the
-weight layout, neural evaluation, elite preservation, and reusable compute
-validation.
+compares every float with a small tolerance for both world shapes. A two-agent
+GPU test verifies physical separation, tactile contact, and reception of an
+emitted red signal. Pure CPU tests cover channel mapping, weight layout, neural
+evaluation, elite preservation, and reusable compute validation.
 
 ## Build and run
 
@@ -106,7 +114,7 @@ The next world feature should enter through a focused contract:
 
 - walls and occlusion extend sensor/world queries;
 - recurrent state extends `AgentState` and the brain contract;
-- inter-agent light uses a separate spatial-index compute pass;
+- internal walls and occlusion extend grid-backed world queries;
 - colony scoring replaces fitness aggregation without changing physics;
 - a different topology can become another evaluator/shader pair;
 - GPU-side evolution can later replace the synchronous generation boundary.

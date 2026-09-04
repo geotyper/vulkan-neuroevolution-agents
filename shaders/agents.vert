@@ -6,6 +6,10 @@ struct Agent {
     vec4 signal;
     vec4 target;
     vec4 metrics;
+    vec4 wallTouch0;
+    vec4 wallTouch1;
+    vec4 agentTouch0;
+    vec4 agentTouch1;
 };
 
 layout(std430, set = 0, binding = 0) readonly buffer Agents {
@@ -17,7 +21,7 @@ layout(push_constant) uniform DrawParameters {
     float scaleY;
     float worldRadius;
     float opacity;
-    uint mode; // 0 hex body, 1 beacon, 2 light halo, 3 arena, 4 heading
+    uint mode; // 0 circular body, 1 beacon, 2 light halo, 3 arena, 4 heading
     uint worldShape;
     uint reserved1;
     uint reserved2;
@@ -42,7 +46,18 @@ void main() {
     vec2 world;
     if (params.mode == 0) {
         world = agent.pose.xy + circleVertex(gl_VertexIndex, agent.pose.w, 16);
-        color = vec4(mix(vec3(0.72, 0.82, 0.92), agent.signal.rgb, 0.42), params.opacity);
+        const float wallContact = max(max(max(agent.wallTouch0.x, agent.wallTouch0.y),
+                                          max(agent.wallTouch0.z, agent.wallTouch0.w)),
+                                      max(max(agent.wallTouch1.x, agent.wallTouch1.y),
+                                          max(agent.wallTouch1.z, agent.wallTouch1.w)));
+        const float agentContact = max(max(max(agent.agentTouch0.x, agent.agentTouch0.y),
+                                           max(agent.agentTouch0.z, agent.agentTouch0.w)),
+                                       max(max(agent.agentTouch1.x, agent.agentTouch1.y),
+                                           max(agent.agentTouch1.z, agent.agentTouch1.w)));
+        vec3 bodyColor = mix(vec3(0.72, 0.82, 0.92), agent.signal.rgb, 0.42);
+        bodyColor = mix(bodyColor, vec3(1.0, 0.35, 0.12), wallContact * 0.75);
+        bodyColor = mix(bodyColor, vec3(1.0, 0.95, 0.35), agentContact * 0.85);
+        color = vec4(bodyColor, params.opacity);
     } else if (params.mode == 1) {
         world = agent.target.xy + circleVertex(gl_VertexIndex, 0.060, 16);
         const vec3 trialColors[4] = vec3[](vec3(0.20, 0.85, 1.0), vec3(1.0, 0.35, 0.75),

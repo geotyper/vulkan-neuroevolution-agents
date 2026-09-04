@@ -20,8 +20,11 @@ void plotHistory(const char* label, const std::vector<float>& values, const floa
         ImGui::TextDisabled("%s: waiting for the first completed generation", label);
         return;
     }
-    ImGui::PlotLines(label, values.data(), static_cast<int>(values.size()), 0, nullptr, minimum,
-                     maximum, ImVec2(-1.0F, 62.0F));
+    ImGui::PushID(label);
+    ImGui::PlotLines("##history", values.data(), static_cast<int>(values.size()), 0, nullptr,
+                     minimum, maximum, ImVec2(-1.0F, 62.0F));
+    ImGui::TextDisabled("%s", label);
+    ImGui::PopID();
 }
 
 } // namespace
@@ -79,10 +82,19 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SliderFloat("Angular drag", &state_.physics.angularDrag, 0.1F, 6.0F);
     ImGui::SliderFloat("Maximum speed", &state_.physics.maximumSpeed, 0.10F, 1.50F);
     ImGui::SliderFloat("Maximum turn speed", &state_.physics.maximumAngularSpeed, 0.25F, 8.0F);
+    ImGui::SliderFloat("Collision restitution", &state_.physics.collisionRestitution, 0.0F, 1.0F);
+    ImGui::SliderFloat("Collision stiffness", &state_.physics.collisionStiffness, 0.1F, 1.0F);
+    ImGui::Checkbox("Agent collisions", &state_.physics.agentCollisionsEnabled);
+    ImGui::SeparatorText("Sensors");
     ImGui::SliderAngle("Sensor FOV", &state_.physics.sensorFieldOfView, 20.0F, 170.0F);
+    ImGui::SliderFloat("Light range", &state_.physics.lightSensorRange, 0.25F,
+                       state_.physics.worldRadius * 2.0F);
+    ImGui::SliderFloat("Light exposure", &state_.physics.lightExposure, 0.1F, 4.0F);
+    ImGui::Checkbox("Perceive agent light", &state_.physics.agentLightEnabled);
     ImGui::SeparatorText("Brain contract");
     ImGui::Text("%zu inputs -> %zu tanh -> %zu outputs", neuro::Topology::inputCount,
                 neuro::Topology::hiddenCount, neuro::Topology::outputCount);
+    ImGui::TextDisabled("7 x RGB+luminance, 8 x wall+agent touch, 4 self");
     ImGui::TextDisabled("outputs: left/right motor, RGB, light intensity");
     ImGui::End();
 

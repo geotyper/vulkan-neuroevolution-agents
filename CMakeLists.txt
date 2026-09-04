@@ -39,6 +39,8 @@ set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 
 set(SHADER_SOURCES
     game_of_life.comp
+    agent_grid_clear.comp
+    agent_grid_build.comp
     agent_step.comp
     agents.vert
     agents.frag
