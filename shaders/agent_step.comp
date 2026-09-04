@@ -1,0 +1,152 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+const uint ReceptorCount = 7;
+const uint InputCount = 10;
+const uint HiddenCount = 12;
+const uint OutputCount = 6;
+
+struct Agent {
+    vec4 pose;
+    vec4 motion;
+    vec4 signal;
+    vec4 target;
+    vec4 metrics;
+};
+
+layout(std430, set = 0, binding = 0) buffer Agents {
+    Agent agents[];
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer GenomeWeights {
+    float weights[];
+};
+
+layout(push_constant) uniform StepParameters {
+    float deltaTime;
+    float worldRadius;
+    float thrust;
+    float turnAcceleration;
+    float linearDrag;
+    float angularDrag;
+    float sensorFieldOfView;
+    float arrivalRadius;
+    float maximumSpeed;
+    float maximumAngularSpeed;
+    float reservedFloat0;
+    float reservedFloat1;
+    uint agentCount;
+    uint weightsPerGenome;
+    uint trialsPerGenome;
+    uint worldShape;
+} params;
+
+void main() {
+    const uint id = gl_GlobalInvocationID.x;
+    if (id >= params.agentCount) {
+        return;
+    }
+
+    Agent agent = agents[id];
+    float inputs[InputCount];
+    const vec2 toLight = agent.target.xy - agent.pose.xy;
+    const float distanceSquared = dot(toLight, toLight);
+    const vec2 lightDirection = toLight * inversesqrt(max(distanceSquared, 1.0e-8));
+    const float normalizedDistanceSquared =
+        distanceSquared / (params.worldRadius * params.worldRadius);
+    const float attenuation = 1.0 / (1.0 + normalizedDistanceSquared * 2.0);
+    for (uint receptor = 0; receptor < ReceptorCount; ++receptor) {
+        const float fraction = float(receptor) / float(ReceptorCount - 1);
+        const float sensorAngle =
+            agent.pose.z + (fraction - 0.5) * params.sensorFieldOfView;
+        const vec2 direction = vec2(cos(sensorAngle), sin(sensorAngle));
+        const float alignment = max(dot(direction, lightDirection), 0.0);
+        inputs[receptor] = pow(alignment, 12.0) * attenuation;
+    }
+    inputs[7] = clamp(length(agent.motion.xy) * 0.5, 0.0, 1.0);
+    inputs[8] = clamp(agent.motion.z / 3.0, -1.0, 1.0);
+    inputs[9] = clamp(agent.motion.w, 0.0, 1.0);
+
+    const uint genome = id / params.trialsPerGenome;
+    const uint base = genome * params.weightsPerGenome;
+    float hidden[HiddenCount];
+    const uint hiddenBias = InputCount * HiddenCount;
+    for (uint neuron = 0; neuron < HiddenCount; ++neuron) {
+        float activation = weights[base + hiddenBias + neuron];
+        for (uint inputIndex = 0; inputIndex < InputCount; ++inputIndex) {
+            activation += weights[base + neuron * InputCount + inputIndex] * inputs[inputIndex];
+        }
+        hidden[neuron] = tanh(activation);
+    }
+
+    const uint outputWeights = hiddenBias + HiddenCount;
+    const uint outputBias = outputWeights + HiddenCount * OutputCount;
+    float outputs[OutputCount];
+    for (uint neuron = 0; neuron < OutputCount; ++neuron) {
+        float activation = weights[base + outputBias + neuron];
+        for (uint hiddenIndex = 0; hiddenIndex < HiddenCount; ++hiddenIndex) {
+            activation +=
+                weights[base + outputWeights + neuron * HiddenCount + hiddenIndex] *
+                hidden[hiddenIndex];
+        }
+        outputs[neuron] = tanh(activation);
+    }
+
+    const float left = outputs[0];
+    const float right = outputs[1];
+    const vec2 forward = vec2(cos(agent.pose.z), sin(agent.pose.z));
+    const float drive = 0.5 * (left + right) * params.thrust;
+    agent.motion.xy += forward * drive * params.deltaTime;
+    agent.motion.xy *= exp(-params.linearDrag * params.deltaTime);
+    agent.motion.z += (right - left) * params.turnAcceleration * params.deltaTime;
+    agent.motion.z *= exp(-params.angularDrag * params.deltaTime);
+    const float speed = length(agent.motion.xy);
+    if (speed > params.maximumSpeed) {
+        agent.motion.xy *= params.maximumSpeed / speed;
+    }
+    agent.motion.z = clamp(agent.motion.z, -params.maximumAngularSpeed,
+                           params.maximumAngularSpeed);
+    agent.pose.xy += agent.motion.xy * params.deltaTime;
+    agent.pose.z += agent.motion.z * params.deltaTime;
+
+    const float maximumCenterDistance = max(params.worldRadius - agent.pose.w, 0.0);
+    if (params.worldShape == 0) {
+        const float centerDistance = length(agent.pose.xy);
+        if (centerDistance > maximumCenterDistance) {
+            const vec2 normal = agent.pose.xy / centerDistance;
+            agent.pose.xy = normal * maximumCenterDistance;
+            const float outward = dot(agent.motion.xy, normal);
+            if (outward > 0.0) {
+                agent.motion.xy -= normal * outward * 1.5;
+            }
+        }
+    } else {
+        if (agent.pose.x > maximumCenterDistance) {
+            agent.pose.x = maximumCenterDistance;
+            agent.motion.x = min(agent.motion.x, 0.0) - max(agent.motion.x, 0.0) * 0.5;
+        } else if (agent.pose.x < -maximumCenterDistance) {
+            agent.pose.x = -maximumCenterDistance;
+            agent.motion.x = max(agent.motion.x, 0.0) - min(agent.motion.x, 0.0) * 0.5;
+        }
+        if (agent.pose.y > maximumCenterDistance) {
+            agent.pose.y = maximumCenterDistance;
+            agent.motion.y = min(agent.motion.y, 0.0) - max(agent.motion.y, 0.0) * 0.5;
+        } else if (agent.pose.y < -maximumCenterDistance) {
+            agent.pose.y = -maximumCenterDistance;
+            agent.motion.y = max(agent.motion.y, 0.0) - min(agent.motion.y, 0.0) * 0.5;
+        }
+    }
+
+    const float motorCost = (abs(left) + abs(right)) * params.deltaTime;
+    agent.motion.w = max(0.0, agent.motion.w - motorCost * 0.0008);
+    agent.signal = vec4(outputs[2] * 0.5 + 0.5, outputs[3] * 0.5 + 0.5,
+                        outputs[4] * 0.5 + 0.5, max(outputs[5], 0.0));
+    const float distance = length(agent.target.xy - agent.pose.xy);
+    agent.metrics.y = min(agent.metrics.y, distance);
+    agent.metrics.z += motorCost;
+    if (distance < params.arrivalRadius) {
+        agent.metrics.w = 1.0;
+    }
+    agents[id] = agent;
+}

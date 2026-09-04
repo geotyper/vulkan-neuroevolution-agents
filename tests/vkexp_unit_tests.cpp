@@ -1,5 +1,6 @@
 #include "vkexp/compute/ComputeResources.hpp"
-#include "vkexp/presets/PresetRegistry.hpp"
+#include "vkexp/evolution/GeneticAlgorithm.hpp"
+#include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
 
@@ -7,6 +8,7 @@
 #include <exception>
 #include <iostream>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -52,28 +54,6 @@ void testCpuProfiler() {
     check(profiler.series(cpuWorkMetric).statistics().sampleCount == 1, "CPU work sample");
     check(closeTo(profiler.series(customMetric).statistics().currentMs, 1.25F),
           "CPU custom duration");
-}
-
-void testPresetRegistry() {
-    vkexp::PresetRegistry registry;
-    check(registry.all().size() == 3, "Built-in preset count");
-    check(registry.require("mixed").graphicsEnabled, "Mixed preset graphics");
-    check(registry.require("mixed").computeEnabled, "Mixed preset compute");
-
-    registry.loadWindowPreset(VKEXP_TEST_WINDOW_PRESET);
-    for (const auto& preset : registry.all()) {
-        check(preset.windowWidth >= 320 && preset.windowWidth <= 7680, "Loaded preset width range");
-        check(preset.windowHeight >= 240 && preset.windowHeight <= 4320,
-              "Loaded preset height range");
-    }
-
-    bool rejectedUnknown = false;
-    try {
-        static_cast<void>(registry.require("does-not-exist"));
-    } catch (const std::exception&) {
-        rejectedUnknown = true;
-    }
-    check(rejectedUnknown, "Unknown preset rejection");
 }
 
 void testDispatchSize() {
@@ -182,14 +162,39 @@ void testPingPongState() {
     check(buffers.readIndex() == 0 && buffers.writeIndex() == 1, "Restored ping-pong indices");
 }
 
+void testNeuralNetworkContract() {
+    vkexp::neuro::Weights weights{};
+    vkexp::neuro::Inputs inputs{};
+    inputs.fill(1.0F);
+    const vkexp::neuro::Outputs outputs = vkexp::neuro::evaluate(weights, inputs);
+    for (const float output : outputs) {
+        check(closeTo(output, 0.0F), "Zero neural network output");
+    }
+    check(vkexp::neuro::Topology::weightCount == 210, "Stable flattened neural weight count");
+}
+
+void testGeneticAlgorithm() {
+    const vkexp::EvolutionSettings settings{8, 2, 3, 0.5F, 0.1F, 0.2F, 42U};
+    vkexp::GeneticAlgorithm evolution{settings};
+    const std::vector<vkexp::Genome> original = evolution.population();
+    const std::vector<float> fitness{-4.0F, -3.0F, -2.0F, -1.0F, 0.0F, 1.0F, 2.0F, 3.0F};
+    const vkexp::GenerationSummary summary = evolution.evolve(fitness);
+    check(summary.championIndex == 7, "GA champion selection");
+    check(closeTo(summary.bestFitness, 3.0F), "GA best fitness");
+    check(evolution.generation() == 1, "GA generation counter");
+    check(evolution.population().front().weights == original.back().weights,
+          "GA preserves champion as first elite");
+}
+
 } // namespace
 
 int main() {
     testTimingSeries();
     testCpuProfiler();
-    testPresetRegistry();
     testDispatchSize();
     testComputeResourceValidation();
     testPingPongState();
+    testNeuralNetworkContract();
+    testGeneticAlgorithm();
     return failures == 0 ? 0 : 1;
 }

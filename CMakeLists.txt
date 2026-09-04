@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(vulkan_compute_boilerplate VERSION 0.3.0 LANGUAGES CXX)
+project(vulkan_neuroevolution_agents VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,15 +10,8 @@ option(VKEXP_ENABLE_VALIDATION "Enable Vulkan validation layers in debug builds"
 
 include(CTest)
 
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS config/window.preset)
-file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/config)
-configure_file(config/window.preset
-               ${CMAKE_CURRENT_BINARY_DIR}/config/window.preset
-               COPYONLY)
-
 find_package(Vulkan 1.3 REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
-find_package(glm REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -45,10 +38,10 @@ set(SHADER_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 
 set(SHADER_SOURCES
-    triangle.vert
-    triangle.frag
-    experiment.comp
     game_of_life.comp
+    agent_step.comp
+    agents.vert
+    agents.frag
 )
 
 set(SHADER_BINARIES)
@@ -118,46 +111,67 @@ target_include_directories(vkexp_compute PUBLIC include)
 target_link_libraries(vkexp_compute PUBLIC vkexp_core)
 vkexp_enable_warnings(vkexp_compute)
 
-add_library(vkexp_demo STATIC
-    src/graphics/GraphicsModule.cpp
-    src/compute/ComputeModule.cpp
-    src/demo/DemoUiModule.cpp
-    src/presets/PresetRegistry.cpp
+add_library(vkneuro_domain STATIC
+    src/neuro/NeuralNetwork.cpp
+    src/simulation/Sensors.cpp
+    src/simulation/CpuSimulation.cpp
+    src/evolution/GeneticAlgorithm.cpp
 )
-add_dependencies(vkexp_demo vkexp_shaders)
-target_include_directories(vkexp_demo PUBLIC include)
-target_link_libraries(vkexp_demo
-    PUBLIC vkexp_compute vkexp_imgui glm::glm
-    PRIVATE imgui
+target_include_directories(vkneuro_domain PUBLIC include)
+vkexp_enable_warnings(vkneuro_domain)
+
+add_library(vkneuro_simulation STATIC
+    src/simulation/SimulationModule.cpp
 )
-target_compile_definitions(vkexp_demo PRIVATE
+add_dependencies(vkneuro_simulation vkexp_shaders)
+target_include_directories(vkneuro_simulation PUBLIC include)
+target_link_libraries(vkneuro_simulation PUBLIC vkneuro_domain vkexp_compute)
+target_compile_definitions(vkneuro_simulation PRIVATE
     VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
 )
-vkexp_enable_warnings(vkexp_demo)
+vkexp_enable_warnings(vkneuro_simulation)
 
-add_executable(vulkan_compute_boilerplate src/main.cpp)
-target_link_libraries(vulkan_compute_boilerplate PRIVATE vkexp_demo)
-target_compile_definitions(vulkan_compute_boilerplate PRIVATE
-    VKEXP_WINDOW_PRESET="${CMAKE_CURRENT_BINARY_DIR}/config/window.preset"
+add_library(vkneuro_visualization STATIC
+    src/graphics/AgentRenderer.cpp
+)
+add_dependencies(vkneuro_visualization vkexp_shaders)
+target_include_directories(vkneuro_visualization PUBLIC include)
+target_link_libraries(vkneuro_visualization PUBLIC vkneuro_domain vkexp_compute)
+target_compile_definitions(vkneuro_visualization PRIVATE
+    VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
+)
+vkexp_enable_warnings(vkneuro_visualization)
+
+add_library(vkneuro_ui STATIC
+    src/ui/SimulationUiModule.cpp
+)
+target_include_directories(vkneuro_ui PUBLIC include)
+target_link_libraries(vkneuro_ui
+    PUBLIC vkneuro_domain vkexp_imgui
+    PRIVATE imgui
+)
+vkexp_enable_warnings(vkneuro_ui)
+
+add_executable(vulkan_neuroevolution_agents src/main.cpp)
+target_link_libraries(vulkan_neuroevolution_agents PRIVATE
+    vkneuro_simulation vkneuro_visualization vkneuro_ui
+)
+target_compile_definitions(vulkan_neuroevolution_agents PRIVATE
     $<$<AND:$<BOOL:${VKEXP_ENABLE_VALIDATION}>,$<CONFIG:Debug>>:VKEXP_ENABLE_VALIDATION>
 )
-vkexp_enable_warnings(vulkan_compute_boilerplate)
+vkexp_enable_warnings(vulkan_neuroevolution_agents)
 
 if(BUILD_TESTING)
     add_executable(vkexp_unit_tests tests/vkexp_unit_tests.cpp)
-    target_link_libraries(vkexp_unit_tests PRIVATE vkexp_demo)
-    target_compile_definitions(vkexp_unit_tests PRIVATE
-        VKEXP_TEST_WINDOW_PRESET="${CMAKE_CURRENT_SOURCE_DIR}/config/window.preset"
-    )
+    target_link_libraries(vkexp_unit_tests PRIVATE vkexp_compute vkneuro_domain)
     vkexp_enable_warnings(vkexp_unit_tests)
 
     add_test(NAME vkexp_unit_tests COMMAND vkexp_unit_tests)
-    add_test(NAME vkexp_cli_list_presets
-             COMMAND vulkan_compute_boilerplate --list-presets)
+    add_test(NAME vkexp_cli_help COMMAND vulkan_neuroevolution_agents --help)
 
     add_executable(vkexp_compute_smoke tests/compute_smoke.cpp)
     add_dependencies(vkexp_compute_smoke vkexp_shaders)
-    target_link_libraries(vkexp_compute_smoke PRIVATE vkexp_compute)
+    target_link_libraries(vkexp_compute_smoke PRIVATE vkexp_compute vkneuro_domain)
     target_compile_definitions(vkexp_compute_smoke PRIVATE
         VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
     )
