@@ -6,6 +6,7 @@ struct Agent {
     vec4 signal;
     vec4 target;
     vec4 metrics;
+    vec4 penalties;
     vec4 wallTouch0;
     vec4 wallTouch1;
     vec4 agentTouch0;
@@ -25,7 +26,11 @@ layout(push_constant) uniform DrawParameters {
     uint worldShape;
     uint beaconScenario;
     uint beaconPhase;
-    uint reserved0;
+    float beaconRotationAngle;
+    float beaconRadiusRatio;
+    float beaconMotionTime;
+    float beaconTeleportProbability;
+    uint beaconMotionSeed;
     uint reserved1;
     uint reserved2;
     uint reserved3;
@@ -43,6 +48,43 @@ vec2 circleVertex(uint vertex, float radius, uint segmentCount) {
     }
     const float angle = Tau * float(segment + corner - 1) / float(segmentCount);
     return vec2(cos(angle), sin(angle)) * radius;
+}
+
+uint hashUint(uint value) {
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+float random01(uint value) {
+    return float(hashUint(value) & 0x00ffffffu) / 16777215.0;
+}
+
+vec2 randomWaypoint(uint waypoint, uint trial) {
+    const uint key = params.beaconMotionSeed ^ (trial * 0x9e3779b9u) ^
+                     (waypoint * 0x85ebca6bu);
+    const float angle = random01(key) * Tau;
+    const float radialFraction = 0.25 + sqrt(random01(key ^ 0xc2b2ae35u)) * 0.75;
+    const float radius = params.worldRadius * params.beaconRadiusRatio * radialFraction;
+    return vec2(cos(angle), sin(angle)) * radius;
+}
+
+vec2 randomMovingBeaconPosition(uint trial) {
+    const float segmentValue = max(params.beaconMotionTime, 0.0) / 3.0;
+    const uint segment = uint(floor(segmentValue));
+    const float interpolation = fract(segmentValue);
+    vec2 start = randomWaypoint(segment, trial);
+    const uint eventKey = params.beaconMotionSeed ^ (trial * 0x27d4eb2du) ^
+                          (segment * 0x165667b1u) ^ 0xa511e9b3u;
+    if (random01(eventKey) < params.beaconTeleportProbability) {
+        start = randomWaypoint(segment + 0x10000u, trial);
+    }
+    const vec2 end = randomWaypoint(segment + 1u, trial);
+    const float smoothFactor = interpolation * interpolation * (3.0 - 2.0 * interpolation);
+    return mix(start, end, smoothFactor);
 }
 
 void main() {
@@ -67,6 +109,21 @@ void main() {
                                            vec3(0.55, 1.0, 0.35), vec3(1.0, 0.72, 0.20));
         if (params.beaconScenario == 0) {
             world = agent.target.xy + circleVertex(gl_VertexIndex, 0.060, 16);
+            color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
+        } else if (params.beaconScenario == 2) {
+            const float orbitRadius = params.worldRadius * params.beaconRadiusRatio;
+            const float targetLength = length(agent.target.xy);
+            const vec2 base = targetLength > 0.000001
+                                  ? agent.target.xy / targetLength * orbitRadius
+                                  : vec2(orbitRadius, 0.0);
+            const float cosine = cos(params.beaconRotationAngle);
+            const float sine = sin(params.beaconRotationAngle);
+            world = mat2(cosine, sine, -sine, cosine) * base;
+            world += circleVertex(gl_VertexIndex, 0.060, 16);
+            color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
+        } else if (params.beaconScenario == 3) {
+            world = randomMovingBeaconPosition(gl_InstanceIndex);
+            world += circleVertex(gl_VertexIndex, 0.060, 16);
             color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
         } else {
             const float offset = params.worldRadius * 0.62;
@@ -94,7 +151,7 @@ void main() {
                                           vec2(-r, -r), vec2(r, r), vec2(-r, r));
             world = square[gl_VertexIndex];
         }
-        color = vec4(0.055, 0.09, 0.14, params.opacity);
+        color = vec4(0.022, 0.034, 0.055, params.opacity);
     } else {
         const vec2 heading[3] = vec2[](vec2(1.42, 0.0), vec2(0.25, 0.38),
                                        vec2(0.25, -0.38));

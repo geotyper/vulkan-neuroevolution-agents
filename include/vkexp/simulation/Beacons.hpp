@@ -24,5 +24,7 @@ struct ActiveBeacons {
 [[nodiscard]] std::uint32_t completedBeaconPhases(const AgentState& agent);
 [[nodiscard]] std::uint32_t beaconPhaseForStep(BeaconScenario scenario, std::uint32_t step,
                                                std::uint32_t stepsPerGeneration);
+[[nodiscard]] float beaconRotationAngleForStep(float angularSpeed, float deltaTime,
+                                               std::uint32_t step);
 
 } // namespace vkexp

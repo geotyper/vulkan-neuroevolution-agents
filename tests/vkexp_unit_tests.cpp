@@ -4,6 +4,7 @@
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
 #include "vkexp/simulation/Beacons.hpp"
+#include "vkexp/simulation/CpuSimulation.hpp"
 #include "vkexp/simulation/Sensors.hpp"
 
 #include <cmath>
@@ -226,6 +227,58 @@ void testWorldAndBeaconScenarios() {
     check(vkexp::beaconPhaseForStep(vkexp::BeaconScenario::AlternatingDiagonals, 449, 900) == 0 &&
               vkexp::beaconPhaseForStep(vkexp::BeaconScenario::AlternatingDiagonals, 450, 900) == 1,
           "Beacon diagonal changes at the generation midpoint");
+
+    settings.beaconScenario = vkexp::BeaconScenario::Rotating;
+    settings.beaconRadiusRatio = std::hypot(1.0F, 0.5F) / settings.worldRadius;
+    settings.beaconRotationAngle = 1.57079632679F;
+    const vkexp::ActiveBeacons rotating = vkexp::activeBeacons(agent, settings);
+    check(rotating.count == 1 && closeTo(rotating.values[0].position.x, -0.5F) &&
+              closeTo(rotating.values[0].position.y, 1.0F),
+          "Rotating beacon orbits around the world center");
+    check(closeTo(vkexp::beaconRotationAngleForStep(0.5F, 0.1F, 20), 1.0F),
+          "Beacon angle follows simulation time and angular speed");
+
+    settings.beaconScenario = vkexp::BeaconScenario::RandomMovement;
+    settings.beaconRadiusRatio = 0.65F;
+    settings.beaconTeleportProbability = 0.25F;
+    settings.beaconMotionSeed = 42U;
+    settings.beaconMotionTime = 0.0F;
+    const vkexp::ActiveBeacons randomStart = vkexp::activeBeacons(agent, settings);
+    settings.beaconMotionTime = 1.5F;
+    const vkexp::ActiveBeacons randomMiddle = vkexp::activeBeacons(agent, settings);
+    const float maximumRoamRadius = settings.worldRadius * settings.beaconRadiusRatio;
+    check(randomStart.count == 1 &&
+              std::hypot(randomStart.values[0].position.x, randomStart.values[0].position.y) <=
+                  maximumRoamRadius &&
+              std::hypot(randomMiddle.values[0].position.x, randomMiddle.values[0].position.y) <=
+                  maximumRoamRadius,
+          "Random beacon remains inside its configured roaming radius");
+    check(!closeTo(randomStart.values[0].position.x, randomMiddle.values[0].position.x) ||
+              !closeTo(randomStart.values[0].position.y, randomMiddle.values[0].position.y),
+          "Random beacon moves between deterministic waypoints");
+}
+
+void testWallCollisionPenalty() {
+    vkexp::AgentState agent{};
+    agent.pose = {1.817F, 0.0F, 0.0F, 0.022F};
+    agent.motion = {0.55F, 0.0F, 0.0F, 1.0F};
+    agent.target = {0.0F, 0.0F, 0.0F, 0.0F};
+    agent.metrics = {1.817F, 1.817F, 0.0F, 0.0F};
+    vkexp::SimulationStep settings{};
+    settings.worldShape = vkexp::WorldShape::Square;
+    settings.wallCollisionPenalty = 0.1F;
+    const vkexp::neuro::Weights weights{};
+
+    vkexp::stepAgentCpu(agent, weights, settings);
+
+    const float touch = agent.wallTouch0.x + agent.wallTouch0.y + agent.wallTouch0.z +
+                        agent.wallTouch0.w + agent.wallTouch1.x + agent.wallTouch1.y +
+                        agent.wallTouch1.z + agent.wallTouch1.w;
+    check(touch > 0.0F, "World boundary produces tactile contact");
+    check(agent.penalties.x > 0.0F, "World boundary accumulates a fitness penalty");
+    check(vkexp::agentFitness(agent) <
+              agent.metrics.w + (agent.metrics.x - agent.metrics.y) - agent.metrics.z * 0.002F,
+          "Wall collision penalty lowers fitness");
 }
 
 void testGeneticAlgorithm() {
@@ -252,6 +305,7 @@ int main() {
     testNeuralNetworkContract();
     testMultimodalSensors();
     testWorldAndBeaconScenarios();
+    testWallCollisionPenalty();
     testGeneticAlgorithm();
     return failures == 0 ? 0 : 1;
 }

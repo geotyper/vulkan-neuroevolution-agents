@@ -156,6 +156,8 @@ std::vector<AgentState> SimulationModule::makeInitialAgents() const {
     SimulationStep initialSettings = state_.physics;
     initialSettings.beaconPhase = 0;
     initialSettings.beaconPhaseChanged = false;
+    initialSettings.beaconMotionTime = 0.0F;
+    initialSettings.beaconMotionSeed = static_cast<std::uint32_t>(evolution_.generation());
     for (std::size_t genome = 0; genome < genomeCount; ++genome) {
         const float normalizedRadius =
             std::sqrt((static_cast<float>(genome) + 0.5F) / static_cast<float>(genomeCount));
@@ -266,7 +268,7 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
             state_.physics.collisionRestitution,
             state_.physics.collisionStiffness,
             gridCellSize,
-            0.0F,
+            state_.physics.wallCollisionPenalty,
             state_.agents.agentCount,
             static_cast<std::uint32_t>(neuro::Topology::weightCount),
             trialsPerGenome,
@@ -278,7 +280,12 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
             static_cast<std::uint32_t>(state_.physics.beaconScenario),
             beaconPhase,
             phaseChanged ? 1U : 0U,
-            0U};
+            beaconRotationAngleForStep(state_.physics.beaconAngularSpeed, state_.physics.deltaTime,
+                                       generationStep),
+            state_.physics.beaconRadiusRatio,
+            state_.physics.deltaTime * static_cast<float>(generationStep),
+            state_.physics.beaconTeleportProbability,
+            static_cast<std::uint32_t>(evolution_.generation())};
 }
 
 void SimulationModule::onUpdate(AppContext& context, const FrameInfo&) {

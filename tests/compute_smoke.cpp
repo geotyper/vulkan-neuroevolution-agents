@@ -160,8 +160,16 @@ void runNeuralStepParity(
     vkexp::SimulationStep settings{};
     settings.worldShape = worldShape;
     settings.beaconScenario = beaconScenario;
+    if (beaconScenario == vkexp::BeaconScenario::Rotating) {
+        settings.beaconRotationAngle = 0.73F;
+    } else if (beaconScenario == vkexp::BeaconScenario::RandomMovement) {
+        settings.beaconMotionTime = 4.2F;
+        settings.beaconMotionSeed = 73U;
+    }
     vkexp::SimulationStep initialSettings = settings;
     initialSettings.beaconPhase = 0;
+    initialSettings.beaconRotationAngle = 0.0F;
+    initialSettings.beaconMotionTime = 0.0F;
     const float initialDistance = vkexp::nearestBeaconDistance(initial, initialSettings);
     initial.metrics = {initialDistance, initialDistance, 0.0F, 0.0F};
     if (beaconScenario == vkexp::BeaconScenario::AlternatingDiagonals) {
@@ -272,7 +280,7 @@ void runNeuralStepParity(
         settings.collisionRestitution,
         settings.collisionStiffness,
         gridCellSize,
-        0.0F,
+        settings.wallCollisionPenalty,
         1,
         static_cast<std::uint32_t>(vkexp::neuro::Topology::weightCount),
         1,
@@ -284,7 +292,11 @@ void runNeuralStepParity(
         static_cast<std::uint32_t>(settings.beaconScenario),
         settings.beaconPhase,
         settings.beaconPhaseChanged ? 1U : 0U,
-        0U};
+        settings.beaconRotationAngle,
+        settings.beaconRadiusRatio,
+        settings.beaconMotionTime,
+        settings.beaconTeleportProbability,
+        settings.beaconMotionSeed};
     context.immediate().execute([&](const VkCommandBuffer commands) {
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
         vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout(), 0, 1,
@@ -417,7 +429,7 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
         settings.collisionRestitution,
         settings.collisionStiffness,
         cellSize,
-        0.0F,
+        settings.wallCollisionPenalty,
         static_cast<std::uint32_t>(agentCount),
         static_cast<std::uint32_t>(vkexp::neuro::Topology::weightCount),
         1,
@@ -429,7 +441,11 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
         static_cast<std::uint32_t>(settings.beaconScenario),
         settings.beaconPhase,
         settings.beaconPhaseChanged ? 1U : 0U,
-        0U};
+        settings.beaconRotationAngle,
+        settings.beaconRadiusRatio,
+        settings.beaconMotionTime,
+        settings.beaconTeleportProbability,
+        settings.beaconMotionSeed};
     context.immediate().execute([&](const VkCommandBuffer commands) {
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
         vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout(), 0, 1,
@@ -466,6 +482,8 @@ int run() {
     runNeuralStepParity(context, vkexp::WorldShape::Square);
     runNeuralStepParity(context, vkexp::WorldShape::Circle,
                         vkexp::BeaconScenario::AlternatingDiagonals);
+    runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::Rotating);
+    runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::RandomMovement);
     runAgentInteractionTest(context);
     std::cout << "Headless compute and CPU/GPU neural parity tests passed on "
               << context.deviceName() << '\n';

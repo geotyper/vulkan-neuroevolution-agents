@@ -20,12 +20,16 @@ struct DrawParameters {
     std::uint32_t worldShape{};
     std::uint32_t beaconScenario{};
     std::uint32_t beaconPhase{};
-    std::uint32_t reserved0{};
+    float beaconRotationAngle{};
+    float beaconRadiusRatio{};
+    float beaconMotionTime{};
+    float beaconTeleportProbability{};
+    std::uint32_t beaconMotionSeed{};
     std::uint32_t reserved1{};
     std::uint32_t reserved2{};
     std::uint32_t reserved3{};
 };
-static_assert(sizeof(DrawParameters) == 48);
+static_assert(sizeof(DrawParameters) == 64);
 
 } // namespace
 
@@ -174,20 +178,25 @@ void AgentRenderer::onUpdate(AppContext& context, const FrameInfo&) {
 void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, const float scaleY,
                          const float worldRadius, const std::uint32_t mode, const float opacity,
                          const std::uint32_t vertices, const std::uint32_t instances) const {
-    const DrawParameters parameters{scaleX,
-                                    scaleY,
-                                    worldRadius,
-                                    opacity,
-                                    mode,
-                                    static_cast<std::uint32_t>(state_.physics.worldShape),
-                                    static_cast<std::uint32_t>(state_.physics.beaconScenario),
-                                    beaconPhaseForStep(state_.physics.beaconScenario,
-                                                       state_.statistics.step,
-                                                       state_.controls.stepsPerGeneration),
-                                    0,
-                                    0,
-                                    0,
-                                    0};
+    const DrawParameters parameters{
+        scaleX,
+        scaleY,
+        worldRadius,
+        opacity,
+        mode,
+        static_cast<std::uint32_t>(state_.physics.worldShape),
+        static_cast<std::uint32_t>(state_.physics.beaconScenario),
+        beaconPhaseForStep(state_.physics.beaconScenario, state_.statistics.step,
+                           state_.controls.stepsPerGeneration),
+        beaconRotationAngleForStep(state_.physics.beaconAngularSpeed, state_.physics.deltaTime,
+                                   state_.statistics.step),
+        state_.physics.beaconRadiusRatio,
+        state_.physics.deltaTime * static_cast<float>(state_.statistics.step),
+        state_.physics.beaconTeleportProbability,
+        static_cast<std::uint32_t>(state_.statistics.generation),
+        0,
+        0,
+        0};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(parameters), &parameters);
     vkCmdDraw(commands, vertices, instances, 0, 0);
@@ -203,7 +212,7 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
                                                    : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         targetLayout_ == VK_IMAGE_LAYOUT_UNDEFINED ? 0 : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-    constexpr VkClearColorValue clear{{0.006F, 0.010F, 0.020F, 1.0F}};
+    constexpr VkClearColorValue clear{{0.001F, 0.002F, 0.005F, 1.0F}};
     VkRenderingAttachmentInfo attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     attachment.imageView = target_.view();
     attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -239,8 +248,9 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48,
          state_.agents.agentCount);
     const std::uint32_t beaconInstances =
-        state_.physics.beaconScenario == BeaconScenario::Stationary ? state_.agents.trialsPerGenome
-                                                                    : 2U;
+        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals
+            ? 2U
+            : state_.agents.trialsPerGenome;
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 1, 0.90F, 48, beaconInstances);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 0, 0.88F, 48,
          state_.agents.agentCount);

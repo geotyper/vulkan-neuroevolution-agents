@@ -65,12 +65,15 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [ ] wall distance/type receptor channels;
 - [x] per-trial GPU spatial grid for agent queries;
 - [x] circle-circle collision and tactile interaction tests;
+- [x] configurable fitness penalty for world-boundary contacts;
 - [ ] wall-ray and occlusion parity tests;
 - [ ] procedural maze trials with train/evaluation seed separation.
 
 ### 4. Memory and task switching
 
 - [x] stationary and mid-generation alternating beacon scenarios;
+- [x] rotating beacon scenario with adjustable angular speed;
+- [x] deterministic random beacon paths with configurable teleport chance;
 - [x] discrete small, medium, and large training arenas;
 - [ ] recurrent/internal state with explicit reset semantics;
 - [ ] energy pickup and nest delivery;

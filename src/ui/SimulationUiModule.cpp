@@ -88,15 +88,45 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     }
     ImGui::Text("World span: %.2f", state_.physics.worldRadius * 2.0F);
     int beaconScenario = static_cast<int>(state_.physics.beaconScenario);
-    constexpr const char* beaconScenarios[] = {"Stationary", "Alternating diagonals"};
-    if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios, 2)) {
+    constexpr const char* beaconScenarios[] = {"Stationary", "Alternating diagonals", "Rotating",
+                                               "Random movement"};
+    if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios, 4)) {
         state_.physics.beaconScenario = static_cast<BeaconScenario>(beaconScenario);
         state_.controls.resetRequested = true;
+    }
+    if (state_.physics.beaconScenario == BeaconScenario::Rotating ||
+        state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
+        float beaconRadius = state_.physics.beaconRadiusRatio * state_.physics.worldRadius;
+        const char* radiusLabel = state_.physics.beaconScenario == BeaconScenario::Rotating
+                                      ? "Orbit radius"
+                                      : "Roam radius";
+        if (ImGui::SliderFloat(radiusLabel, &beaconRadius, state_.physics.worldRadius * 0.10F,
+                               state_.physics.worldRadius * 0.90F, "%.2f")) {
+            state_.physics.beaconRadiusRatio = beaconRadius / state_.physics.worldRadius;
+            state_.controls.resetRequested = true;
+        }
     }
     if (state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals) {
         const std::uint32_t phase =
             state_.statistics.step >= state_.controls.stepsPerGeneration / 2 ? 2U : 1U;
         ImGui::TextDisabled("Active diagonal: %u / 2", phase);
+    } else if (state_.physics.beaconScenario == BeaconScenario::Rotating) {
+        if (ImGui::SliderAngle("Rotation speed", &state_.physics.beaconAngularSpeed, -90.0F, 90.0F,
+                               "%.1f deg/s")) {
+            state_.controls.resetRequested = true;
+        }
+        if (std::abs(state_.physics.beaconAngularSpeed) > 0.0001F) {
+            constexpr float tau = 6.28318530718F;
+            ImGui::TextDisabled("Orbit period: %.1f s",
+                                tau / std::abs(state_.physics.beaconAngularSpeed));
+        }
+    } else if (state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
+        float teleportPercent = state_.physics.beaconTeleportProbability * 100.0F;
+        if (ImGui::SliderFloat("Teleport chance", &teleportPercent, 0.0F, 100.0F, "%.0f%%")) {
+            state_.physics.beaconTeleportProbability = teleportPercent * 0.01F;
+            state_.controls.resetRequested = true;
+        }
+        ImGui::TextDisabled("New destination every 3.0 s");
     }
     ImGui::SeparatorText("Physics");
     ImGui::SliderFloat("Thrust", &state_.physics.thrust, 0.2F, 4.0F);
@@ -107,6 +137,8 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SliderFloat("Maximum turn speed", &state_.physics.maximumAngularSpeed, 0.25F, 8.0F);
     ImGui::SliderFloat("Collision restitution", &state_.physics.collisionRestitution, 0.0F, 1.0F);
     ImGui::SliderFloat("Collision stiffness", &state_.physics.collisionStiffness, 0.1F, 1.0F);
+    ImGui::SliderFloat("Wall penalty / step", &state_.physics.wallCollisionPenalty, 0.0F, 0.10F,
+                       "%.4f");
     ImGui::Checkbox("Agent collisions", &state_.physics.agentCollisionsEnabled);
     ImGui::SeparatorText("Sensors");
     ImGui::SliderAngle("Sensor FOV", &state_.physics.sensorFieldOfView, 20.0F, 170.0F);

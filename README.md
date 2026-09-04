@@ -22,9 +22,11 @@ are separate targets rather than one application-specific module.
   limits;
 - selectable circular or square world in small (x1), medium (x1.5), and large
   (x3) sizes;
-- stationary per-trial beacons or two active diagonal beacons that switch to
-  the opposite diagonal halfway through each generation;
+- stationary per-trial beacons, alternating diagonal pairs, orbiting beacons,
+  or deterministic random movement with occasional teleportation;
 - circle-circle agent collisions with impulse response and tactile pressure;
+- configurable accumulated fitness penalty for hitting or pushing against the
+  world boundary;
 - additive, softly tone-mapped RGB perception of nearby agent signals;
 - runtime ablation switches for agent collisions and agent-light perception;
 - average fitness across trials rewards progress and completion in every beacon
@@ -56,12 +58,17 @@ only work from one spawn position or heading.
 | World size | Small x1, Medium x1.5, Large x3 | Scales the arena, spawn distribution, and beacon placement. Agent size, speed, and sensor range remain physical constants, so larger worlds are harder. |
 | Beacon scenario | Stationary | One fixed coloured target per logical trial. |
 | Beacon scenario | Alternating diagonals | Two beacons occupy one diagonal during the first half of a generation, then two beacons occupy the opposite diagonal. |
+| Beacon scenario | Rotating | One beacon per trial continuously orbits the world centre; speed and direction are adjustable from -90 to +90 degrees per second. |
+| Beacon scenario | Random movement | Each trial follows deterministic random waypoints, with a configurable chance of teleporting at a three-second path boundary. |
 
 Changing the world size, shape, or beacon scenario resets the evolution because
 fitness values gathered in different environments are not directly comparable.
 In the alternating scenario, reaching either active beacon completes the
 current phase. Progress and completion are scored independently for both halves
-of the generation.
+of the generation. The moving scenarios additionally reward sustained visible
+closeness, so following the target scores better than a chance encounter.
+Rotating and random scenarios expose an orbit/roaming-radius control; the
+default random teleport probability is 25%.
 
 ## Architecture
 
@@ -94,7 +101,7 @@ The shared contracts are small:
 
 - `SimulationState` carries controls, statistics, the published agent-buffer
   view, and the published viewport image;
-- `AgentState` is an explicitly checked 144-byte std430-compatible structure;
+- `AgentState` is an explicitly checked 160-byte std430-compatible structure;
 - `Topology` defines one flattened 1106-float weight layout used identically by
   the CPU evaluator and GLSL shader;
 - module order in `main.cpp` is the composition graph: compute publishes the

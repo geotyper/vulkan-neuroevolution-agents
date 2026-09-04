@@ -110,6 +110,10 @@ void stepAgentCpu(AgentState& agent,
             agent.motion.y = std::max(agent.motion.y, 0.0F) - std::min(agent.motion.y, 0.0F) * 0.5F;
         }
     }
+    const float wallContactAmount = agent.wallTouch0.x + agent.wallTouch0.y + agent.wallTouch0.z +
+                                    agent.wallTouch0.w + agent.wallTouch1.x + agent.wallTouch1.y +
+                                    agent.wallTouch1.z + agent.wallTouch1.w;
+    agent.penalties.x += wallContactAmount * settings.wallCollisionPenalty;
 
     const float motorCost = (std::abs(left) + std::abs(right)) * settings.deltaTime;
     const float signalIntensity = std::max(output[5], 0.0F);
@@ -121,6 +125,12 @@ void stepAgentCpu(AgentState& agent,
     const float distance = nearestBeaconDistance(agent, settings);
     agent.metrics.y = std::min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;
+    if (settings.beaconScenario == BeaconScenario::Rotating ||
+        settings.beaconScenario == BeaconScenario::RandomMovement) {
+        const float visibleCloseness =
+            std::clamp(1.0F - distance / settings.lightSensorRange, 0.0F, 1.0F);
+        agent.metrics.w += visibleCloseness * settings.deltaTime * 0.25F;
+    }
     if (distance < settings.arrivalRadius) {
         const std::uint32_t phaseBit = 1U << settings.beaconPhase;
         const auto completedMask =
@@ -131,7 +141,8 @@ void stepAgentCpu(AgentState& agent,
 
 float agentFitness(const AgentState& agent) {
     return agent.metrics.w + (agent.metrics.x - agent.metrics.y) +
-           static_cast<float>(completedBeaconPhases(agent)) * 2.0F - agent.metrics.z * 0.002F;
+           static_cast<float>(completedBeaconPhases(agent)) * 2.0F - agent.metrics.z * 0.002F -
+           agent.penalties.x;
 }
 
 } // namespace vkexp

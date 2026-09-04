@@ -21,6 +21,8 @@ enum class WorldSize : std::uint32_t {
 enum class BeaconScenario : std::uint32_t {
     Stationary = 0,
     AlternatingDiagonals = 1,
+    Rotating = 2,
+    RandomMovement = 3,
 };
 
 inline constexpr float smallWorldRadius = 1.84F;
@@ -51,6 +53,7 @@ struct alignas(16) AgentState {
     Float4 signal;      // emitted RGB and intensity
     Float4 target;      // stationary beacon.xy, trial id, completed-phase bit mask
     Float4 metrics;     // phase start/min distance, motor cost, completed-phase progress
+    Float4 penalties;   // accumulated wall, agent, hazard, and reserved penalties
     Float4 wallTouch0;  // wall contact sectors 0..3
     Float4 wallTouch1;  // wall contact sectors 4..7
     Float4 agentTouch0; // agent contact sectors 0..3
@@ -58,9 +61,10 @@ struct alignas(16) AgentState {
 };
 
 static_assert(std::is_trivially_copyable_v<AgentState>);
-static_assert(sizeof(AgentState) == 144);
+static_assert(sizeof(AgentState) == 160);
 static_assert(offsetof(AgentState, metrics) == 64);
-static_assert(offsetof(AgentState, wallTouch0) == 80);
+static_assert(offsetof(AgentState, penalties) == 80);
+static_assert(offsetof(AgentState, wallTouch0) == 96);
 
 struct SimulationStep {
     float deltaTime{1.0F / 60.0F};
@@ -77,6 +81,13 @@ struct SimulationStep {
     float lightExposure{1.25F};
     float collisionRestitution{0.35F};
     float collisionStiffness{0.85F};
+    float wallCollisionPenalty{0.01F};
+    float beaconAngularSpeed{0.35F};
+    float beaconRotationAngle{};
+    float beaconRadiusRatio{0.72F};
+    float beaconMotionTime{};
+    float beaconTeleportProbability{0.25F};
+    std::uint32_t beaconMotionSeed{};
     WorldShape worldShape{WorldShape::Circle};
     WorldSize worldSize{WorldSize::Small};
     BeaconScenario beaconScenario{BeaconScenario::Stationary};
@@ -102,7 +113,7 @@ struct alignas(16) GpuStepParameters {
     float collisionRestitution{};
     float collisionStiffness{};
     float gridCellSize{};
-    float reservedFloat{};
+    float wallCollisionPenalty{};
     std::uint32_t agentCount{};
     std::uint32_t weightsPerGenome{};
     std::uint32_t trialsPerGenome{};
@@ -114,9 +125,13 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t beaconScenario{};
     std::uint32_t beaconPhase{};
     std::uint32_t beaconPhaseChanged{};
-    std::uint32_t reservedUint{};
+    float beaconRotationAngle{};
+    float beaconRadiusRatio{};
+    float beaconMotionTime{};
+    float beaconTeleportProbability{};
+    std::uint32_t beaconMotionSeed{};
 };
 
-static_assert(sizeof(GpuStepParameters) == 112);
+static_assert(sizeof(GpuStepParameters) == 128);
 
 } // namespace vkexp

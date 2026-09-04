@@ -8,6 +8,7 @@ struct Agent {
     vec4 signal;
     vec4 target;
     vec4 metrics;
+    vec4 penalties;
     vec4 wallTouch0;
     vec4 wallTouch1;
     vec4 agentTouch0;
