@@ -59,7 +59,7 @@ only work from one spawn position or heading.
 | Beacon scenario | Stationary | One fixed coloured target per logical trial. |
 | Beacon scenario | Alternating diagonals | Two beacons occupy one diagonal during the first half of a generation, then two beacons occupy the opposite diagonal. |
 | Beacon scenario | Rotating | One beacon per trial continuously orbits the world centre; speed and direction are adjustable from -90 to +90 degrees per second. |
-| Beacon scenario | Random movement | Each trial follows deterministic random waypoints, with a configurable chance of teleporting at a three-second path boundary. |
+| Beacon scenario | Random movement | Each trial follows a smooth bounded wandering path with adjustable speed and a configurable teleport chance checked every three seconds. |
 
 Changing the world size, shape, or beacon scenario resets the evolution because
 fitness values gathered in different environments are not directly comparable.

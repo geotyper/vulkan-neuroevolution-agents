@@ -121,12 +121,16 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                                 tau / std::abs(state_.physics.beaconAngularSpeed));
         }
     } else if (state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
+        if (ImGui::SliderFloat("Wander speed", &state_.physics.beaconRandomSpeed, 0.0F, 0.75F,
+                               "%.2f")) {
+            state_.controls.resetRequested = true;
+        }
         float teleportPercent = state_.physics.beaconTeleportProbability * 100.0F;
         if (ImGui::SliderFloat("Teleport chance", &teleportPercent, 0.0F, 100.0F, "%.0f%%")) {
             state_.physics.beaconTeleportProbability = teleportPercent * 0.01F;
             state_.controls.resetRequested = true;
         }
-        ImGui::TextDisabled("New destination every 3.0 s");
+        ImGui::TextDisabled("Teleport check every 3.0 s");
     }
     ImGui::SeparatorText("Physics");
     ImGui::SliderFloat("Thrust", &state_.physics.thrust, 0.2F, 4.0F);

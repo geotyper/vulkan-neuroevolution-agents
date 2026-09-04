@@ -292,7 +292,9 @@ void runNeuralStepParity(
         static_cast<std::uint32_t>(settings.beaconScenario),
         settings.beaconPhase,
         settings.beaconPhaseChanged ? 1U : 0U,
-        settings.beaconRotationAngle,
+        settings.beaconScenario == vkexp::BeaconScenario::RandomMovement
+            ? settings.beaconRandomSpeed
+            : settings.beaconRotationAngle,
         settings.beaconRadiusRatio,
         settings.beaconMotionTime,
         settings.beaconTeleportProbability,
@@ -441,7 +443,9 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
         static_cast<std::uint32_t>(settings.beaconScenario),
         settings.beaconPhase,
         settings.beaconPhaseChanged ? 1U : 0U,
-        settings.beaconRotationAngle,
+        settings.beaconScenario == vkexp::BeaconScenario::RandomMovement
+            ? settings.beaconRandomSpeed
+            : settings.beaconRotationAngle,
         settings.beaconRadiusRatio,
         settings.beaconMotionTime,
         settings.beaconTeleportProbability,

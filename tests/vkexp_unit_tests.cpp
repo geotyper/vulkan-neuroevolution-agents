@@ -244,7 +244,10 @@ void testWorldAndBeaconScenarios() {
     settings.beaconMotionSeed = 42U;
     settings.beaconMotionTime = 0.0F;
     const vkexp::ActiveBeacons randomStart = vkexp::activeBeacons(agent, settings);
+    settings.beaconRandomSpeed = 0.0F;
     settings.beaconMotionTime = 1.5F;
+    const vkexp::ActiveBeacons randomStopped = vkexp::activeBeacons(agent, settings);
+    settings.beaconRandomSpeed = 0.18F;
     const vkexp::ActiveBeacons randomMiddle = vkexp::activeBeacons(agent, settings);
     const float maximumRoamRadius = settings.worldRadius * settings.beaconRadiusRatio;
     check(randomStart.count == 1 &&
@@ -253,6 +256,9 @@ void testWorldAndBeaconScenarios() {
               std::hypot(randomMiddle.values[0].position.x, randomMiddle.values[0].position.y) <=
                   maximumRoamRadius,
           "Random beacon remains inside its configured roaming radius");
+    check(closeTo(randomStart.values[0].position.x, randomStopped.values[0].position.x) &&
+              closeTo(randomStart.values[0].position.y, randomStopped.values[0].position.y),
+          "Zero wander speed stops continuous random movement");
     check(!closeTo(randomStart.values[0].position.x, randomMiddle.values[0].position.x) ||
               !closeTo(randomStart.values[0].position.y, randomMiddle.values[0].position.y),
           "Random beacon moves between deterministic waypoints");

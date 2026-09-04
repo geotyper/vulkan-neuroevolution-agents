@@ -27,30 +27,49 @@ float random01(const std::uint32_t value) {
     return static_cast<float>(hash(value) & 0x00ffffffU) / 16777215.0F;
 }
 
-Float4 randomWaypoint(const std::uint32_t waypoint, const std::uint32_t trial,
-                      const SimulationStep& settings) {
-    const std::uint32_t key =
-        settings.beaconMotionSeed ^ (trial * 0x9e3779b9U) ^ (waypoint * 0x85ebca6bU);
-    const float angle = random01(key) * tau;
-    const float radialFraction = 0.25F + std::sqrt(random01(key ^ 0xc2b2ae35U)) * 0.75F;
-    const float radius = settings.worldRadius * settings.beaconRadiusRatio * radialFraction;
-    return {std::cos(angle) * radius, std::sin(angle) * radius, 0.0F, 0.0F};
+bool isTeleportSegment(const std::uint32_t segment, const std::uint32_t trial,
+                       const SimulationStep& settings) {
+    if (segment == 0 || settings.beaconTeleportProbability <= 0.0F) {
+        return false;
+    }
+    const std::uint32_t eventKey =
+        settings.beaconMotionSeed ^ (trial * 0x27d4eb2dU) ^ (segment * 0x165667b1U) ^ 0xa511e9b3U;
+    return random01(eventKey) < settings.beaconTeleportProbability;
+}
+
+std::uint32_t latestWanderEpoch(const std::uint32_t segment, const std::uint32_t trial,
+                                const SimulationStep& settings) {
+    for (std::uint32_t candidate = segment; candidate > 0; --candidate) {
+        if (isTeleportSegment(candidate, trial, settings)) {
+            return candidate;
+        }
+    }
+    return 0;
 }
 
 Float4 randomMovingBeaconPosition(const std::uint32_t trial, const SimulationStep& settings) {
-    const float segmentValue =
-        std::max(settings.beaconMotionTime, 0.0F) / randomMotionSegmentSeconds;
-    const auto segment = static_cast<std::uint32_t>(std::floor(segmentValue));
-    const float interpolation = segmentValue - std::floor(segmentValue);
-    Float4 start = randomWaypoint(segment, trial, settings);
-    const std::uint32_t eventKey =
-        settings.beaconMotionSeed ^ (trial * 0x27d4eb2dU) ^ (segment * 0x165667b1U) ^ 0xa511e9b3U;
-    if (random01(eventKey) < settings.beaconTeleportProbability) {
-        start = randomWaypoint(segment + 0x10000U, trial, settings);
-    }
-    const Float4 end = randomWaypoint(segment + 1U, trial, settings);
-    const float smooth = interpolation * interpolation * (3.0F - 2.0F * interpolation);
-    return {start.x + (end.x - start.x) * smooth, start.y + (end.y - start.y) * smooth, 0.0F, 0.0F};
+    const float motionTime = std::max(settings.beaconMotionTime, 0.0F);
+    const auto segment =
+        static_cast<std::uint32_t>(std::floor(motionTime / randomMotionSegmentSeconds));
+    const std::uint32_t epoch = latestWanderEpoch(segment, trial, settings);
+    const float localTime = motionTime - static_cast<float>(epoch) * randomMotionSegmentSeconds;
+    const float roamRadius = settings.worldRadius * settings.beaconRadiusRatio;
+    const float scaledTime = localTime * settings.beaconRandomSpeed / std::max(roamRadius, 0.001F);
+    const std::uint32_t key =
+        settings.beaconMotionSeed ^ (trial * 0x9e3779b9U) ^ (epoch * 0x85ebca6bU);
+    const float phase0 = random01(key) * tau;
+    const float phase1 = random01(key ^ 0x68bc21ebU) * tau;
+    const float phase2 = random01(key ^ 0x02e5be93U) * tau;
+    const float phase3 = random01(key ^ 0x967a889bU) * tau;
+    const float rawX = 0.62F * std::sin(scaledTime * 0.73F + phase0) +
+                       0.28F * std::sin(scaledTime * 1.37F + phase1) +
+                       0.18F * std::sin(scaledTime * 0.31F + phase2);
+    const float rawY = 0.58F * std::sin(scaledTime * 0.83F + phase3) +
+                       0.31F * std::sin(scaledTime * 1.19F + phase0) +
+                       0.16F * std::sin(scaledTime * 0.27F + phase1);
+    const float rawLength = std::hypot(rawX, rawY);
+    const float scale = roamRadius / (1.25F + rawLength);
+    return {rawX * scale, rawY * scale, 0.0F, 0.0F};
 }
 
 } // namespace

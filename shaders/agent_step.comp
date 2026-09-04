@@ -68,7 +68,7 @@ layout(push_constant) uniform StepParameters {
     uint beaconScenario;
     uint beaconPhase;
     uint beaconPhaseChanged;
-    float beaconRotationAngle;
+    float beaconMotionValue;
     float beaconRadiusRatio;
     float beaconMotionTime;
     float beaconTeleportProbability;
@@ -94,28 +94,42 @@ float random01(uint value) {
     return float(hashUint(value) & 0x00ffffffu) / 16777215.0;
 }
 
-vec2 randomWaypoint(uint waypoint, uint trial) {
-    const uint key = params.beaconMotionSeed ^ (trial * 0x9e3779b9u) ^
-                     (waypoint * 0x85ebca6bu);
-    const float angle = random01(key) * Tau;
-    const float radialFraction = 0.25 + sqrt(random01(key ^ 0xc2b2ae35u)) * 0.75;
-    const float radius = params.worldRadius * params.beaconRadiusRatio * radialFraction;
-    return vec2(cos(angle), sin(angle)) * radius;
+bool isTeleportSegment(uint segment, uint trial) {
+    if (segment == 0u || params.beaconTeleportProbability <= 0.0) {
+        return false;
+    }
+    const uint eventKey = params.beaconMotionSeed ^ (trial * 0x27d4eb2du) ^
+                          (segment * 0x165667b1u) ^ 0xa511e9b3u;
+    return random01(eventKey) < params.beaconTeleportProbability;
 }
 
 vec2 randomMovingBeaconPosition(uint trial) {
-    const float segmentValue = max(params.beaconMotionTime, 0.0) / 3.0;
-    const uint segment = uint(floor(segmentValue));
-    const float interpolation = fract(segmentValue);
-    vec2 start = randomWaypoint(segment, trial);
-    const uint eventKey = params.beaconMotionSeed ^ (trial * 0x27d4eb2du) ^
-                          (segment * 0x165667b1u) ^ 0xa511e9b3u;
-    if (random01(eventKey) < params.beaconTeleportProbability) {
-        start = randomWaypoint(segment + 0x10000u, trial);
+    const float motionTime = max(params.beaconMotionTime, 0.0);
+    const uint segment = uint(floor(motionTime / 3.0));
+    uint epoch = 0u;
+    for (uint candidate = segment; candidate > 0u; --candidate) {
+        if (isTeleportSegment(candidate, trial)) {
+            epoch = candidate;
+            break;
+        }
     }
-    const vec2 end = randomWaypoint(segment + 1u, trial);
-    const float smoothFactor = interpolation * interpolation * (3.0 - 2.0 * interpolation);
-    return mix(start, end, smoothFactor);
+    const float localTime = motionTime - float(epoch) * 3.0;
+    const float roamRadius = params.worldRadius * params.beaconRadiusRatio;
+    const float scaledTime = localTime * params.beaconMotionValue / max(roamRadius, 0.001);
+    const uint key = params.beaconMotionSeed ^ (trial * 0x9e3779b9u) ^
+                     (epoch * 0x85ebca6bu);
+    const float phase0 = random01(key) * Tau;
+    const float phase1 = random01(key ^ 0x68bc21ebu) * Tau;
+    const float phase2 = random01(key ^ 0x02e5be93u) * Tau;
+    const float phase3 = random01(key ^ 0x967a889bu) * Tau;
+    const float rawX = 0.62 * sin(scaledTime * 0.73 + phase0) +
+                       0.28 * sin(scaledTime * 1.37 + phase1) +
+                       0.18 * sin(scaledTime * 0.31 + phase2);
+    const float rawY = 0.58 * sin(scaledTime * 0.83 + phase3) +
+                       0.31 * sin(scaledTime * 1.19 + phase0) +
+                       0.16 * sin(scaledTime * 0.27 + phase1);
+    const vec2 rawPosition = vec2(rawX, rawY);
+    return rawPosition * (roamRadius / (1.25 + length(rawPosition)));
 }
 
 uint activeBeaconCount() {
@@ -132,8 +146,8 @@ vec2 activeBeaconPosition(Agent agent, uint beaconIndex) {
         const vec2 base = targetLength > 0.000001
                               ? agent.target.xy / targetLength * orbitRadius
                               : vec2(orbitRadius, 0.0);
-        const float cosine = cos(params.beaconRotationAngle);
-        const float sine = sin(params.beaconRotationAngle);
+        const float cosine = cos(params.beaconMotionValue);
+        const float sine = sin(params.beaconMotionValue);
         return mat2(cosine, sine, -sine, cosine) * base;
     }
     if (params.beaconScenario == 3) {

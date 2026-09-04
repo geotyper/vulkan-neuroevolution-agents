@@ -253,6 +253,11 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
     const bool phaseChanged =
         state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals &&
         generationStep == state_.controls.stepsPerGeneration / 2;
+    const float beaconMotionValue =
+        state_.physics.beaconScenario == BeaconScenario::RandomMovement
+            ? state_.physics.beaconRandomSpeed
+            : beaconRotationAngleForStep(state_.physics.beaconAngularSpeed,
+                                         state_.physics.deltaTime, generationStep);
     return {state_.physics.deltaTime,
             state_.physics.worldRadius,
             state_.physics.thrust,
@@ -280,8 +285,7 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
             static_cast<std::uint32_t>(state_.physics.beaconScenario),
             beaconPhase,
             phaseChanged ? 1U : 0U,
-            beaconRotationAngleForStep(state_.physics.beaconAngularSpeed, state_.physics.deltaTime,
-                                       generationStep),
+            beaconMotionValue,
             state_.physics.beaconRadiusRatio,
             state_.physics.deltaTime * static_cast<float>(generationStep),
             state_.physics.beaconTeleportProbability,

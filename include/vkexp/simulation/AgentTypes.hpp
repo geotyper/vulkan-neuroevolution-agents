@@ -87,6 +87,7 @@ struct SimulationStep {
     float beaconRadiusRatio{0.72F};
     float beaconMotionTime{};
     float beaconTeleportProbability{0.25F};
+    float beaconRandomSpeed{0.18F};
     std::uint32_t beaconMotionSeed{};
     WorldShape worldShape{WorldShape::Circle};
     WorldSize worldSize{WorldSize::Small};
@@ -125,7 +126,7 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t beaconScenario{};
     std::uint32_t beaconPhase{};
     std::uint32_t beaconPhaseChanged{};
-    float beaconRotationAngle{};
+    float beaconMotionValue{}; // rotation angle or random-wander speed
     float beaconRadiusRatio{};
     float beaconMotionTime{};
     float beaconTeleportProbability{};

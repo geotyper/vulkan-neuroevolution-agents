@@ -20,7 +20,7 @@ struct DrawParameters {
     std::uint32_t worldShape{};
     std::uint32_t beaconScenario{};
     std::uint32_t beaconPhase{};
-    float beaconRotationAngle{};
+    float beaconMotionValue{};
     float beaconRadiusRatio{};
     float beaconMotionTime{};
     float beaconTeleportProbability{};
@@ -188,8 +188,10 @@ void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, con
         static_cast<std::uint32_t>(state_.physics.beaconScenario),
         beaconPhaseForStep(state_.physics.beaconScenario, state_.statistics.step,
                            state_.controls.stepsPerGeneration),
-        beaconRotationAngleForStep(state_.physics.beaconAngularSpeed, state_.physics.deltaTime,
-                                   state_.statistics.step),
+        state_.physics.beaconScenario == BeaconScenario::RandomMovement
+            ? state_.physics.beaconRandomSpeed
+            : beaconRotationAngleForStep(state_.physics.beaconAngularSpeed,
+                                         state_.physics.deltaTime, state_.statistics.step),
         state_.physics.beaconRadiusRatio,
         state_.physics.deltaTime * static_cast<float>(state_.statistics.step),
         state_.physics.beaconTeleportProbability,
