@@ -35,6 +35,14 @@ struct EvolutionHistory {
     std::size_t maximumSamples{256};
 };
 
+// What the viewport draws. None of this reaches the simulation -- turning the
+// agents off to watch the bare trail field changes the picture, not the run.
+struct SimulationDisplay {
+    bool agents{true};
+    bool beacons{true};
+    bool trail{true};
+};
+
 struct SimulationWorlds {
     std::uint32_t requestedAgentsPerWorld{12};
     std::uint32_t agentsPerWorld{12};
@@ -81,6 +89,7 @@ struct SimulationState {
     EvolutionHistory history;
     SimulationWorlds worlds;
     SimulationStep physics;
+    SimulationDisplay display;
     AgentBufferView agents;
     TrailBufferView trail;
     SimulationViewport viewport;

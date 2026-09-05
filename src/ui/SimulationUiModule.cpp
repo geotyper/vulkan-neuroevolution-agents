@@ -247,10 +247,22 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                        "%.2f");
     ImGui::SliderFloat("Trail half-life (s)", &state_.physics.trailHalfLife, 0.25F, 30.0F, "%.2f",
                        ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat("Trail width (cell)", &state_.physics.trailRenderWidth, 0.02F, 1.0F, "%.2f");
+    ImGui::SetItemTooltip("Drawn %.1f cm wide; the body is %.1f cm across. Display only -- the "
+                          "antennae read whole cells.",
+                          static_cast<double>(units::metresToCentimetres(
+                              trail::kernel::TrailCellSize * state_.physics.trailRenderWidth)),
+                          static_cast<double>(units::metresToCentimetres(agentBodyRadius * 2.0F)));
     ImGui::TextDisabled(
         "%u x %u cells of %.0f cm per world", trailWidthForWorld(state_.physics.worldRadius),
         trailWidthForWorld(state_.physics.worldRadius),
         static_cast<double>(units::metresToCentimetres(trail::kernel::TrailCellSize)));
+    ImGui::SeparatorText("Show");
+    ImGui::Checkbox("Trails", &state_.display.trail);
+    ImGui::SameLine();
+    ImGui::Checkbox("Agents", &state_.display.agents);
+    ImGui::SameLine();
+    ImGui::Checkbox("Beacons", &state_.display.beacons);
     ImGui::SeparatorText("Sensors");
     ImGui::SliderAngle("Sensor FOV", &state_.physics.sensorFieldOfView, 20.0F, 170.0F);
     ImGui::SliderFloat("Light range (m)", &state_.physics.lightSensorRange, 0.25F,

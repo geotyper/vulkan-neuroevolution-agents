@@ -193,6 +193,12 @@ struct SimulationStep {
     float trailDepositRate{4.0F};        // agent mark laid per second
     float trailHalfLife{6.0F};           // s for a mark to fade to half
     float beaconTrailDepositRate{12.0F}; // beacons mark harder than agents do
+    // How much of its cell a mark fills when drawn. Display only: the antennae
+    // read whole cells either way, and the deposit is already the narrowest it
+    // can be at one cell. The default is the body diameter over the cell size, so
+    // a track is as wide as whatever left it; 1.0 fills the cell, which reads
+    // better on a large arena where a cell is only a few pixels across.
+    float trailRenderWidth{agentBodyRadius * 2.0F / trail::kernel::TrailCellSize};
     bool trailEnabled{true};
     FitnessWeights fitness{};
     std::uint32_t beaconMotionSeed{};

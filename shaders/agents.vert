@@ -38,6 +38,10 @@ layout(push_constant) uniform DrawParameters {
     uint agentsPerWorld;
     uint trialsPerGenome;
     uint trailWidth;
+    float trailRenderWidth;
+    uint reserved0;
+    uint reserved1;
+    uint reserved2;
     ScenarioParameters scenario;
 } params;
 
@@ -76,7 +80,11 @@ void main() {
         const uint cellY = cell / params.trailWidth;
         const vec2 corners[6] = vec2[](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
                                        vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
-        const vec2 corner = corners[gl_VertexIndex];
+        // Shrink the quad about the cell centre. The mark still lives in exactly
+        // one cell; this only decides how much of that cell is painted, so a
+        // track can be drawn as narrow as the body that left it.
+        const float fill = clamp(params.trailRenderWidth, 0.02, 1.0);
+        const vec2 corner = (corners[gl_VertexIndex] - vec2(0.5)) * fill + vec2(0.5);
         const vec2 cellOrigin = vec2(float(cellX), float(cellY)) * TrailCellSize;
         const vec2 cellWorld =
             cellOrigin + corner * TrailCellSize - vec2(params.worldRadius);

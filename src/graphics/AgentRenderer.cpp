@@ -24,10 +24,16 @@ struct DrawParameters {
     std::uint32_t agentsPerWorld{};
     std::uint32_t trialsPerGenome{};
     std::uint32_t trailWidth{};
+    float trailRenderWidth{};
+    std::uint32_t reserved0{};
+    std::uint32_t reserved1{};
+    std::uint32_t reserved2{};
     ScenarioParameterBlock scenario;
 };
-static_assert(sizeof(DrawParameters) == 96);
-static_assert(offsetof(DrawParameters, scenario) == 48);
+// Still inside the 128 bytes Vulkan guarantees for maxPushConstantsSize; the
+// step parameters ran out of that budget, this has not.
+static_assert(sizeof(DrawParameters) == 112);
+static_assert(offsetof(DrawParameters, scenario) == 64);
 
 } // namespace
 
@@ -199,6 +205,10 @@ void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, con
         state_.worlds.agentsPerWorld,
         state_.agents.trialsPerGenome,
         state_.trail.width,
+        state_.physics.trailRenderWidth,
+        0U,
+        0U,
+        0U,
         scenarioDefinition(settings.beaconScenario).gpuParameters(settings)};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(parameters), &parameters);
@@ -253,16 +263,22 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 3, 1.0F, arenaVertices, 1);
     // The field goes on top of the arena and under everything that moves, so a
     // path reads as ground rather than as another agent.
-    if (state_.physics.trailEnabled && state_.trail.cellsPerWorld > 0) {
+    if (state_.display.trail && state_.physics.trailEnabled && state_.trail.cellsPerWorld > 0) {
         draw(commands, scaleX, scaleY, state_.physics.worldRadius, 5, 0.85F, 6,
              state_.trail.cellsPerWorld);
     }
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48, visibleAgentCount);
-    const std::uint32_t beaconInstances =
-        scenarioDefinition(state_.physics.beaconScenario).beaconCount;
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 1, 0.90F, 48, beaconInstances);
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 0, 0.88F, 48, visibleAgentCount);
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 4, 0.95F, 3, visibleAgentCount);
+    if (state_.display.agents) {
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48, visibleAgentCount);
+    }
+    if (state_.display.beacons) {
+        const std::uint32_t beaconInstances =
+            scenarioDefinition(state_.physics.beaconScenario).beaconCount;
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 1, 0.90F, 48, beaconInstances);
+    }
+    if (state_.display.agents) {
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 0, 0.88F, 48, visibleAgentCount);
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 4, 0.95F, 3, visibleAgentCount);
+    }
     vkCmdEndRendering(commands);
     cmdImageBarrier(commands, target_.image(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
