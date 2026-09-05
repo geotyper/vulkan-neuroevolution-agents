@@ -326,7 +326,7 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
             state_.physics.linearDrag,
             state_.physics.angularDrag,
             state_.physics.sensorFieldOfView,
-            state_.physics.arrivalRadius,
+            beaconArrivalRadius(state_.physics),
             state_.physics.maximumSpeed,
             state_.physics.maximumAngularSpeed,
             state_.physics.lightSensorRange,

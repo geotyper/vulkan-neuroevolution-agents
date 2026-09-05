@@ -28,6 +28,7 @@ enum class BeaconScenario : std::uint32_t {
 };
 
 inline constexpr float smallWorldRadius = 1.84F;
+inline constexpr float beaconVisualRadius = 0.060F;
 inline constexpr std::uint32_t minimumAgentsPerWorld = 10;
 
 [[nodiscard]] constexpr float worldRadiusForSize(const WorldSize size) {
@@ -124,7 +125,7 @@ struct SimulationStep {
     float linearDrag{1.7F};
     float angularDrag{2.4F};
     float sensorFieldOfView{1.8F};
-    float arrivalRadius{0.055F};
+    float arrivalRadiusMultiplier{1.0F};
     float maximumSpeed{0.55F};
     float maximumAngularSpeed{3.0F};
     float lightSensorRange{2.4F};
@@ -148,6 +149,10 @@ struct SimulationStep {
     bool agentCollisionsEnabled{true};
     bool agentLightEnabled{true};
 };
+
+[[nodiscard]] constexpr float beaconArrivalRadius(const SimulationStep& settings) {
+    return beaconVisualRadius * settings.arrivalRadiusMultiplier;
+}
 
 struct alignas(16) GpuStepParameters {
     float deltaTime{};

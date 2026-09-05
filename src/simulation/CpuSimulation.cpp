@@ -135,7 +135,7 @@ void stepAgentCpu(AgentState& agent,
             agent.internal.x = std::max(
                 0.0F, agent.internal.x - settings.forageCargoDecayRate * settings.deltaTime);
         }
-        if (distance < settings.arrivalRadius) {
+        if (distance < beaconArrivalRadius(settings)) {
             agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
             if (agent.internal.y >= 0.5F) {
                 agent.metrics.w += agent.internal.x * forageDeliveryReward;
@@ -158,7 +158,7 @@ void stepAgentCpu(AgentState& agent,
             std::clamp(1.0F - distance / settings.lightSensorRange, 0.0F, 1.0F);
         agent.metrics.w += visibleCloseness * settings.deltaTime * 0.25F;
     }
-    if (distance < settings.arrivalRadius) {
+    if (distance < beaconArrivalRadius(settings)) {
         const std::uint32_t phaseBit = 1U << settings.beaconPhase;
         const auto completedMask =
             static_cast<std::uint32_t>(std::max(agent.target.w, 0.0F) + 0.5F) | phaseBit;

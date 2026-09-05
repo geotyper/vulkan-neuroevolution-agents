@@ -115,6 +115,12 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         state_.physics.beaconScenario = static_cast<BeaconScenario>(beaconScenario);
         state_.controls.resetRequested = true;
     }
+    if (ImGui::SliderFloat("Arrival radius multiplier",
+                           &state_.physics.arrivalRadiusMultiplier, 0.1F, 5.0F, "x%.2f")) {
+        state_.controls.resetRequested = true;
+    }
+    ImGui::TextDisabled("Arrival distance %.3f (x1 = beacon circle)",
+                        beaconArrivalRadius(state_.physics));
     if (state_.physics.beaconScenario == BeaconScenario::Rotating ||
         state_.physics.beaconScenario == BeaconScenario::RandomMovement ||
         state_.physics.beaconScenario == BeaconScenario::ForageHome) {

@@ -237,6 +237,15 @@ void testWorldAndBeaconScenarios() {
           "Medium world radius");
     check(closeTo(vkexp::worldRadiusForSize(vkexp::WorldSize::Large), 1.84F * 3.0F),
           "Large world radius");
+    vkexp::SimulationStep arrivalSettings{};
+    arrivalSettings.arrivalRadiusMultiplier = 0.1F;
+    check(closeTo(vkexp::beaconArrivalRadius(arrivalSettings),
+                  vkexp::beaconVisualRadius * 0.1F),
+          "Minimum arrival multiplier scales the beacon radius");
+    arrivalSettings.arrivalRadiusMultiplier = 5.0F;
+    check(closeTo(vkexp::beaconArrivalRadius(arrivalSettings),
+                  vkexp::beaconVisualRadius * 5.0F),
+          "Maximum arrival multiplier scales the beacon radius");
 
     vkexp::AgentState agent{};
     agent.target = {1.0F, 0.5F, 2.0F, 0.0F};
@@ -353,6 +362,23 @@ void testForageCycleAndMemory() {
           "Home delivery completes one forage cycle");
     check(vkexp::agentFitness(agent, settings.beaconScenario) > 2.0F,
           "Completed forage cycle produces positive fitness");
+
+    vkexp::AgentState radiusProbe{};
+    radiusProbe.pose = {beacons.values[0].position.x + vkexp::beaconVisualRadius * 2.0F,
+                        beacons.values[0].position.y, 0.0F, 0.022F};
+    radiusProbe.motion.w = 1.0F;
+    radiusProbe.target = {1.0F, 0.0F, 0.0F, 0.0F};
+    radiusProbe.metrics = {vkexp::beaconVisualRadius * 2.0F,
+                           vkexp::beaconVisualRadius * 2.0F, 0.0F, 0.0F};
+    vkexp::neuro::Weights zeroWeights{};
+    settings.arrivalRadiusMultiplier = 1.0F;
+    vkexp::stepAgentCpu(radiusProbe, zeroWeights, settings);
+    check(radiusProbe.internal.y < 0.5F,
+          "Default arrival radius requires entering the beacon circle");
+    settings.arrivalRadiusMultiplier = 2.1F;
+    vkexp::stepAgentCpu(radiusProbe, zeroWeights, settings);
+    check(radiusProbe.internal.y >= 0.5F,
+          "Expanded arrival radius permits pickup outside the visible circle");
 }
 
 void testWallCollisionPenalty() {
