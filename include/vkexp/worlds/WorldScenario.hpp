@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/simulation/AgentTypes.hpp"
 
 #include <array>
@@ -20,14 +21,21 @@ struct ActiveBeacons {
     std::size_t count{};
 };
 
+using ScenarioFitness = float (*)(const AgentState& agent);
+
+struct ScenarioDefinition {
+    const char* name{};
+    neuro::BrainShape brain{};
+    ScenarioFitness fitness{};
+};
+
+[[nodiscard]] const ScenarioDefinition& scenarioDefinition(BeaconScenario scenario);
+
 [[nodiscard]] Float4 stationaryBeaconPosition(std::uint32_t trial, float worldRadius);
-[[nodiscard]] Float4 homeBeaconPosition(const AgentState& agent,
-                                        const SimulationStep& settings);
+[[nodiscard]] Float4 homeBeaconPosition(const AgentState& agent, const SimulationStep& settings);
 [[nodiscard]] bool homeBeaconRelocated(const SimulationStep& settings);
-[[nodiscard]] ActiveBeacons activeBeacons(const AgentState& agent,
-                                          const SimulationStep& settings);
-[[nodiscard]] float nearestBeaconDistance(const AgentState& agent,
-                                          const SimulationStep& settings);
+[[nodiscard]] ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& settings);
+[[nodiscard]] float nearestBeaconDistance(const AgentState& agent, const SimulationStep& settings);
 [[nodiscard]] std::uint32_t completedBeaconPhases(const AgentState& agent);
 [[nodiscard]] std::uint32_t completedForageCycles(const AgentState& agent);
 [[nodiscard]] std::uint32_t beaconPhaseForStep(BeaconScenario scenario, std::uint32_t step,

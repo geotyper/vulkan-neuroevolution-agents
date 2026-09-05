@@ -289,7 +289,7 @@ void runNeuralStepParity(
         gridCellSize,
         settings.wallCollisionPenalty,
         1,
-        static_cast<std::uint32_t>(vkexp::neuro::Topology::weightCount),
+        vkexp::neuro::packBrainLayout(vkexp::scenarioDefinition(settings.beaconScenario).brain),
         1,
         static_cast<std::uint32_t>(worldShape),
         gridWidth,
@@ -350,11 +350,10 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool 
 
     std::array<vkexp::neuro::Weights, agentCount> genomes{};
     constexpr std::size_t centerRedInput = 3 * vkexp::neuro::Topology::lightChannelsPerReceptor;
-    constexpr std::size_t outputWeights =
-        vkexp::neuro::Topology::inputCount * vkexp::neuro::Topology::hiddenCount +
-        vkexp::neuro::Topology::hiddenCount;
+    constexpr vkexp::neuro::BrainShape brain{48, 20, 6};
+    constexpr std::size_t outputWeights = brain.inputCount * brain.hiddenCount + brain.hiddenCount;
     genomes[0][centerRedInput] = 4.0F;
-    genomes[0][outputWeights + 2 * vkexp::neuro::Topology::hiddenCount] = 4.0F;
+    genomes[0][outputWeights + 2 * brain.hiddenCount] = 4.0F;
 
     vkexp::BufferResource inputAgents;
     vkexp::BufferResource outputAgents;
@@ -384,8 +383,7 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool 
     if (isolatedWorlds) {
         heads[gridCells + centerCell] = 1;
     }
-    const std::array<std::int32_t, agentCount> links{
-        -1, isolatedWorlds ? -1 : 0};
+    const std::array<std::int32_t, agentCount> links{-1, isolatedWorlds ? -1 : 0};
     gridHeads.create(context.physicalDevice(), context.device(),
                      {heads.size() * sizeof(std::int32_t),
                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
@@ -449,7 +447,7 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool 
         cellSize,
         settings.wallCollisionPenalty,
         static_cast<std::uint32_t>(agentCount),
-        static_cast<std::uint32_t>(vkexp::neuro::Topology::weightCount),
+        vkexp::neuro::packBrainLayout(vkexp::scenarioDefinition(settings.beaconScenario).brain),
         1,
         static_cast<std::uint32_t>(settings.worldShape),
         gridWidth,

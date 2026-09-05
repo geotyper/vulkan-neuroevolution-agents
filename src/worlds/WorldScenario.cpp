@@ -12,6 +12,22 @@
 
 namespace vkexp {
 
+const ScenarioDefinition& scenarioDefinition(const BeaconScenario scenario) {
+    switch (scenario) {
+    case BeaconScenario::Stationary:
+        return worlds::stationary::definition();
+    case BeaconScenario::AlternatingDiagonals:
+        return worlds::alternating::definition();
+    case BeaconScenario::Rotating:
+        return worlds::rotating::definition();
+    case BeaconScenario::RandomMovement:
+        return worlds::random_movement::definition();
+    case BeaconScenario::ForageHome:
+        return worlds::forage_home::definition();
+    }
+    return worlds::stationary::definition();
+}
+
 Float4 stationaryBeaconPosition(const std::uint32_t trial, const float worldRadius) {
     return worlds::stationary::beaconPosition(trial, worldRadius);
 }

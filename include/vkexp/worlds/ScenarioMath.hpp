@@ -25,4 +25,11 @@ inline constexpr std::array<Float4, 4> trialColors{
     return static_cast<float>(hash(value) & 0x00ffffffU) / 16777215.0F;
 }
 
+[[nodiscard]] inline float objectiveFitness(const AgentState& agent,
+                                            const std::uint32_t completedObjectives) {
+    return agent.metrics.w + (agent.metrics.x - agent.metrics.y) +
+           static_cast<float>(completedObjectives) * 2.0F - agent.metrics.z * 0.002F -
+           agent.penalties.x;
+}
+
 } // namespace vkexp::worlds

@@ -14,7 +14,19 @@ constexpr Float4 homeColor{0.12F, 0.72F, 1.00F, 0.0F};
 constexpr float minimumHomeRadiusRatio = 0.38F;
 constexpr float homeRadiusRange = 0.32F;
 
+float fitness(const AgentState& agent) {
+    return objectiveFitness(agent, completedForageCycles(agent));
+}
+
+constexpr neuro::BrainShape brain = neuro::maximumBrainShape;
+static_assert(brain.fitsCapacity());
+
 } // namespace
+
+const ScenarioDefinition& definition() {
+    static constexpr ScenarioDefinition value{"Forage + home", brain, fitness};
+    return value;
+}
 
 Float4 homePosition(const AgentState& agent, const SimulationStep& settings) {
     const auto trial = static_cast<std::uint32_t>(std::max(agent.target.z, 0.0F));
@@ -23,7 +35,8 @@ Float4 homePosition(const AgentState& agent, const SimulationStep& settings) {
     const std::uint32_t key =
         settings.beaconMotionSeed ^ (trial * 0x51ed270bU) ^ (epoch * 0x85ebca6bU) ^ 0xc2b2ae35U;
     const float angle = random01(key) * tau;
-    const float radiusRatio = minimumHomeRadiusRatio + random01(key ^ 0x27d4eb2dU) * homeRadiusRange;
+    const float radiusRatio =
+        minimumHomeRadiusRatio + random01(key ^ 0x27d4eb2dU) * homeRadiusRange;
     const float radius = settings.worldRadius * radiusRatio;
     return {std::cos(angle) * radius, std::sin(angle) * radius, 0.0F, 0.0F};
 }

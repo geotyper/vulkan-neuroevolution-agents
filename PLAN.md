@@ -93,7 +93,8 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 
 - [ ] asynchronous double-buffered generation readback;
 - [ ] optional GPU selection/mutation backend;
-- [ ] pluggable topology descriptors and recurrent evaluator;
+- [x] scenario-owned active dense topology descriptors and recurrent outputs;
+- [ ] pluggable multi-layer/recurrent evaluator implementations;
 - [ ] scenario registry and data-driven experiment configuration;
 - [ ] batch/headless evolution executable;
 - [ ] shader hot reload and capture/replay tooling.

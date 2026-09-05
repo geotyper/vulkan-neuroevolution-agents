@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -74,12 +75,10 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SeparatorText("World");
     int requestedAgentsPerWorld = static_cast<int>(state_.worlds.requestedAgentsPerWorld);
     const int populationSize = static_cast<int>(std::max(state_.agents.genomeCount, 1U));
-    const int minimumGroupSize =
-        std::min(static_cast<int>(minimumAgentsPerWorld), populationSize);
+    const int minimumGroupSize = std::min(static_cast<int>(minimumAgentsPerWorld), populationSize);
     if (ImGui::SliderInt("Agents / world", &requestedAgentsPerWorld, minimumGroupSize,
                          populationSize)) {
-        state_.worlds.requestedAgentsPerWorld =
-            static_cast<std::uint32_t>(requestedAgentsPerWorld);
+        state_.worlds.requestedAgentsPerWorld = static_cast<std::uint32_t>(requestedAgentsPerWorld);
         state_.controls.resetRequested = true;
     }
     if (ImGui::Button("12 agents")) {
@@ -110,14 +109,17 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     }
     ImGui::Text("World span: %.2f", state_.physics.worldRadius * 2.0F);
     int beaconScenario = static_cast<int>(state_.physics.beaconScenario);
-    constexpr const char* beaconScenarios[] = {"Stationary", "Alternating diagonals", "Rotating",
-                                               "Random movement", "Forage + home"};
-    if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios, 5)) {
+    std::array<const char*, beaconScenarioCount> beaconScenarios{};
+    for (std::size_t index = 0; index < beaconScenarios.size(); ++index) {
+        beaconScenarios[index] = scenarioDefinition(static_cast<BeaconScenario>(index)).name;
+    }
+    if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios.data(),
+                     static_cast<int>(beaconScenarios.size()))) {
         state_.physics.beaconScenario = static_cast<BeaconScenario>(beaconScenario);
         state_.controls.resetRequested = true;
     }
-    if (ImGui::SliderFloat("Arrival radius multiplier",
-                           &state_.physics.arrivalRadiusMultiplier, 0.1F, 5.0F, "x%.2f")) {
+    if (ImGui::SliderFloat("Arrival radius multiplier", &state_.physics.arrivalRadiusMultiplier,
+                           0.1F, 5.0F, "x%.2f")) {
         state_.controls.resetRequested = true;
     }
     ImGui::TextDisabled("Arrival distance %.3f (x1 = beacon circle)",
@@ -156,8 +158,7 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                 state_.controls.resetRequested = true;
             }
             ImGui::TextDisabled("Orange resource -> blue home -> repeat");
-            ImGui::TextDisabled("Home relocates every %.0f seconds",
-                                forageHomeRelocationSeconds);
+            ImGui::TextDisabled("Home relocates every %.0f seconds", forageHomeRelocationSeconds);
         }
     } else if (state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
         if (ImGui::SliderFloat("Wander speed", &state_.physics.beaconRandomSpeed, 0.0F, 0.75F,
@@ -190,10 +191,18 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SliderFloat("Light exposure", &state_.physics.lightExposure, 0.1F, 4.0F);
     ImGui::Checkbox("Perceive agent light", &state_.physics.agentLightEnabled);
     ImGui::SeparatorText("Brain contract");
-    ImGui::Text("%zu inputs -> %zu tanh -> %zu outputs", neuro::Topology::inputCount,
-                neuro::Topology::hiddenCount, neuro::Topology::outputCount);
-    ImGui::TextDisabled("light, touch, 4 self, cargo/task, 2 memory");
-    ImGui::TextDisabled("motors, RGB/light intensity, 2 memory updates");
+    const neuro::BrainShape brain = scenarioDefinition(state_.physics.beaconScenario).brain;
+    ImGui::Text("%zu inputs -> %zu tanh -> %zu outputs", brain.inputCount, brain.hiddenCount,
+                brain.outputCount);
+    ImGui::TextDisabled("%zu active weights / %zu genome capacity", brain.weightCount(),
+                        neuro::Topology::weightCount);
+    if (brain.outputCount > neuro::Topology::actuatorOutputCount) {
+        ImGui::TextDisabled("light, touch, self, task state and recurrent memory");
+        ImGui::TextDisabled("motors, RGB/light intensity and memory updates");
+    } else {
+        ImGui::TextDisabled("light, touch and self state");
+        ImGui::TextDisabled("motors and RGB/light intensity");
+    }
     ImGui::End();
 
     ImGui::SetNextWindowPos(ImVec2(16.0F, 500.0F), ImGuiCond_FirstUseEver);

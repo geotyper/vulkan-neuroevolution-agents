@@ -4,6 +4,7 @@
 
 namespace vkexp::worlds::forage_home {
 
+[[nodiscard]] const ScenarioDefinition& definition();
 [[nodiscard]] Float4 homePosition(const AgentState& agent, const SimulationStep& settings);
 [[nodiscard]] bool homeRelocated(const SimulationStep& settings);
 [[nodiscard]] ActiveBeacons beacons(const AgentState& agent, const SimulationStep& settings);

@@ -7,9 +7,9 @@ const uint LightReceptorCount = 7;
 const uint LightChannels = 4;
 const uint TactileSectorCount = 8;
 const uint TactileChannels = 2;
-const uint InputCount = 52;
-const uint HiddenCount = 20;
-const uint OutputCount = 8;
+const uint MaxInputCount = 52;
+const uint MaxHiddenCount = 20;
+const uint MaxOutputCount = 8;
 const float ForagePickupReward = 0.25;
 const float ForageDeliveryReward = 4.0;
 
@@ -61,7 +61,7 @@ layout(push_constant) uniform StepParameters {
     float gridCellSize;
     float wallCollisionPenalty;
     uint agentCount;
-    uint weightsPerGenome;
+    uint brainLayout;
     uint trialsPerGenome;
     uint worldShape;
     uint gridWidth;
@@ -257,7 +257,7 @@ void main() {
         }
     }
 
-    float inputs[InputCount];
+    float inputs[MaxInputCount];
     for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
         const vec3 observed = vec3(1.0) - exp(-params.lightExposure * radiance[receptor]);
         const uint base = receptor * LightChannels;
@@ -288,23 +288,27 @@ void main() {
     inputs[selfOffset + 7] = clamp(agent.internal.w, -1.0, 1.0);
 
     const uint genome = id / params.trialsPerGenome;
-    const uint base = genome * params.weightsPerGenome;
-    float hidden[HiddenCount];
-    const uint hiddenBias = InputCount * HiddenCount;
-    for (uint neuron = 0; neuron < HiddenCount; ++neuron) {
+    const uint genomeStride = params.brainLayout & 0xfffu;
+    const uint inputCount = (params.brainLayout >> 12u) & 0x3fu;
+    const uint hiddenCount = (params.brainLayout >> 18u) & 0x3fu;
+    const uint outputCount = (params.brainLayout >> 24u) & 0x1fu;
+    const uint base = genome * genomeStride;
+    float hidden[MaxHiddenCount];
+    const uint hiddenBias = inputCount * hiddenCount;
+    for (uint neuron = 0; neuron < hiddenCount; ++neuron) {
         float activation = weights[base + hiddenBias + neuron];
-        for (uint inputIndex = 0; inputIndex < InputCount; ++inputIndex) {
-            activation += weights[base + neuron * InputCount + inputIndex] * inputs[inputIndex];
+        for (uint inputIndex = 0; inputIndex < inputCount; ++inputIndex) {
+            activation += weights[base + neuron * inputCount + inputIndex] * inputs[inputIndex];
         }
         hidden[neuron] = tanh(activation);
     }
-    const uint outputWeights = hiddenBias + HiddenCount;
-    const uint outputBias = outputWeights + HiddenCount * OutputCount;
-    float outputs[OutputCount];
-    for (uint neuron = 0; neuron < OutputCount; ++neuron) {
+    const uint outputWeights = hiddenBias + hiddenCount;
+    const uint outputBias = outputWeights + hiddenCount * outputCount;
+    float outputs[MaxOutputCount];
+    for (uint neuron = 0; neuron < outputCount; ++neuron) {
         float activation = weights[base + outputBias + neuron];
-        for (uint hiddenIndex = 0; hiddenIndex < HiddenCount; ++hiddenIndex) {
-            activation += weights[base + outputWeights + neuron * HiddenCount + hiddenIndex] *
+        for (uint hiddenIndex = 0; hiddenIndex < hiddenCount; ++hiddenIndex) {
+            activation += weights[base + outputWeights + neuron * hiddenCount + hiddenIndex] *
                           hidden[hiddenIndex];
         }
         outputs[neuron] = tanh(activation);
@@ -378,8 +382,13 @@ void main() {
     agent.motion.w = max(0.0, agent.motion.w - motorCost * 0.0008 - signalCost * 0.0008);
     agent.signal = vec4(outputs[2] * 0.5 + 0.5, outputs[3] * 0.5 + 0.5,
                         outputs[4] * 0.5 + 0.5, signalIntensity);
-    agent.internal.z = outputs[6];
-    agent.internal.w = outputs[7];
+    if (outputCount >= 8u) {
+        agent.internal.z = outputs[6];
+        agent.internal.w = outputs[7];
+    } else {
+        agent.internal.z = 0.0;
+        agent.internal.w = 0.0;
+    }
     const float distance = nearestBeaconDistance(agent, agent.pose.xy);
     agent.metrics.y = min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;

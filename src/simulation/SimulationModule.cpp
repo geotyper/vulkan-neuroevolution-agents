@@ -160,14 +160,12 @@ std::vector<AgentState> SimulationModule::makeInitialAgents() const {
         const std::size_t agentsInGroup =
             std::min<std::size_t>(state_.worlds.agentsPerWorld, genomeCount - firstGenome);
         const std::size_t agentInGroup = genome - firstGenome;
-        const float normalizedRadius =
-            std::sqrt((static_cast<float>(agentInGroup) + 0.5F) /
-                      static_cast<float>(agentsInGroup));
+        const float normalizedRadius = std::sqrt((static_cast<float>(agentInGroup) + 0.5F) /
+                                                 static_cast<float>(agentsInGroup));
         for (std::size_t trial = 0; trial < trialsPerGenome; ++trial) {
             const std::size_t index = genome * trialsPerGenome + trial;
             const float positionAngle =
-                goldenAngle * static_cast<float>(agentInGroup) +
-                static_cast<float>(trial) * 0.43F;
+                goldenAngle * static_cast<float>(agentInGroup) + static_cast<float>(trial) * 0.43F;
             const float spawnRadius = normalizedRadius * state_.physics.worldRadius * 0.70F;
             const float heading =
                 std::fmod(positionAngle * 1.73F + 0.37F, 2.0F * std::numbers::pi_v<float>);
@@ -182,8 +180,7 @@ std::vector<AgentState> SimulationModule::makeInitialAgents() const {
             const float distance = nearestBeaconDistance(agent, initialSettings);
             agent.metrics = {distance, distance, 0.0F, 0.0F};
             agent.penalties.w = static_cast<float>(logicalWorldForAgent(
-                static_cast<std::uint32_t>(index), state_.worlds.agentsPerWorld,
-                trialsPerGenome));
+                static_cast<std::uint32_t>(index), state_.worlds.agentsPerWorld, trialsPerGenome));
             result[index] = agent;
         }
     }
@@ -274,8 +271,8 @@ void SimulationModule::updateWorldLayout() {
 void SimulationModule::ensureGridCapacity(AppContext& context) {
     const auto maximumGridWidth = static_cast<std::uint32_t>(
         std::ceil((worldRadiusForSize(WorldSize::Large) * 2.0F) / gridCellSize));
-    const VkDeviceSize requiredBytes = sizeof(std::int32_t) * maximumGridWidth * maximumGridWidth *
-                                       state_.worlds.worldCount;
+    const VkDeviceSize requiredBytes =
+        sizeof(std::int32_t) * maximumGridWidth * maximumGridWidth * state_.worlds.worldCount;
     if (gridHeads_.size() >= requiredBytes) {
         return;
     }
@@ -309,6 +306,7 @@ void SimulationModule::updateGridDescriptors(const VkDevice device) {
 }
 
 GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generationStep) const {
+    const ScenarioDefinition& scenario = scenarioDefinition(state_.physics.beaconScenario);
     const std::uint32_t beaconPhase = beaconPhaseForStep(
         state_.physics.beaconScenario, generationStep, state_.controls.stepsPerGeneration);
     const bool phaseChanged =
@@ -336,7 +334,7 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
             gridCellSize,
             state_.physics.wallCollisionPenalty,
             state_.agents.agentCount,
-            static_cast<std::uint32_t>(neuro::Topology::weightCount),
+            neuro::packBrainLayout(scenario.brain),
             trialsPerGenome,
             static_cast<std::uint32_t>(state_.physics.worldShape),
             gridWidth_,

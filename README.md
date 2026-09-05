@@ -102,8 +102,8 @@ vulkan_neuroevolution_agents (composition root)
   +-- vkneuro_domain          no Vulkan dependency
   |     NeuralNetwork         flattened brain contract + CPU evaluator
   |     worlds/
-  |       WorldScenario       public scenario dispatcher
-  |       scenarios/          one C++ module per world scenario
+  |       WorldScenario       scenario definition + public dispatcher
+  |       scenarios/          world rules, brain shape, and fitness per scenario
   |     Sensors               CPU reference perception
   |     CpuSimulation         CPU reference physics/fitness
   |     GeneticAlgorithm      selection/crossover/mutation
@@ -129,13 +129,19 @@ The shared contracts are small:
 - `SimulationState` carries controls, statistics, the published agent-buffer
   view, and the published viewport image;
 - `AgentState` is an explicitly checked 176-byte std430-compatible structure;
-- `Topology` defines one flattened 1228-float weight layout used identically by
-  the CPU evaluator and GLSL shader;
+- `Topology` defines the maximum 1228-float genome capacity, while every
+  `ScenarioDefinition` selects its active input/hidden/output counts and fitness
+  function; the CPU evaluator and GLSL shader use the same packed layout;
 - module order in `main.cpp` is the composition graph: compute publishes the
   buffer, rendering reads it, and ImGui composites the viewport.
 
 This lets a new sensor model, brain evaluator, selection policy, renderer, or
 UI replace its counterpart without changing the application lifecycle.
+
+The four beacon-following scenarios currently use a reactive `48 -> 20 -> 6`
+brain. `Forage + home` declares `52 -> 20 -> 8`, adding task state and two
+recurrent memory cells. Scenario changes still reset evolution, while the GA
+and fixed-capacity GPU genome buffers remain shared.
 
 ## CPU/GPU correctness
 

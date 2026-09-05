@@ -10,6 +10,16 @@ namespace {
 
 constexpr float motionSegmentSeconds = 3.0F;
 
+float fitness(const AgentState& agent) {
+    return objectiveFitness(agent, completedBeaconPhases(agent));
+}
+
+constexpr neuro::BrainShape brain{neuro::Topology::inputCount - neuro::Topology::taskInputCount -
+                                      neuro::Topology::recurrentMemoryCount,
+                                  neuro::Topology::hiddenCount,
+                                  neuro::Topology::actuatorOutputCount};
+static_assert(brain.fitsCapacity());
+
 bool isTeleportSegment(const std::uint32_t segment, const std::uint32_t trial,
                        const SimulationStep& settings) {
     if (segment == 0 || settings.beaconTeleportProbability <= 0.0F) {
@@ -36,8 +46,7 @@ Float4 beaconPosition(const std::uint32_t trial, const SimulationStep& settings)
     const std::uint32_t epoch = latestWanderEpoch(segment, trial, settings);
     const float localTime = motionTime - static_cast<float>(epoch) * motionSegmentSeconds;
     const float roamRadius = settings.worldRadius * settings.beaconRadiusRatio;
-    const float scaledTime =
-        localTime * settings.beaconRandomSpeed / std::max(roamRadius, 0.001F);
+    const float scaledTime = localTime * settings.beaconRandomSpeed / std::max(roamRadius, 0.001F);
     const std::uint32_t key =
         settings.beaconMotionSeed ^ (trial * 0x9e3779b9U) ^ (epoch * 0x85ebca6bU);
     const float phase0 = random01(key) * tau;
@@ -56,10 +65,16 @@ Float4 beaconPosition(const std::uint32_t trial, const SimulationStep& settings)
 
 } // namespace
 
+const ScenarioDefinition& definition() {
+    static constexpr ScenarioDefinition value{"Random movement", brain, fitness};
+    return value;
+}
+
 ActiveBeacons beacons(const AgentState& agent, const SimulationStep& settings) {
     const auto trial = static_cast<std::uint32_t>(std::max(agent.target.z, 0.0F));
-    return {{{Beacon{beaconPosition(trial, settings), trialColors[trial % trialColors.size()]}, {}}},
-            1};
+    return {
+        {{Beacon{beaconPosition(trial, settings), trialColors[trial % trialColors.size()]}, {}}},
+        1};
 }
 
 } // namespace vkexp::worlds::random_movement

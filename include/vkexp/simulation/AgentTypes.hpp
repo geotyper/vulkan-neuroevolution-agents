@@ -27,6 +27,8 @@ enum class BeaconScenario : std::uint32_t {
     ForageHome = 4,
 };
 
+inline constexpr std::size_t beaconScenarioCount = 5;
+
 inline constexpr float smallWorldRadius = 1.84F;
 inline constexpr float beaconVisualRadius = 0.060F;
 inline constexpr std::uint32_t minimumAgentsPerWorld = 10;
@@ -43,8 +45,8 @@ inline constexpr std::uint32_t minimumAgentsPerWorld = 10;
     return smallWorldRadius;
 }
 
-[[nodiscard]] constexpr std::uint32_t clampAgentsPerWorld(
-    const std::uint32_t genomeCount, const std::uint32_t requestedAgentsPerWorld) {
+[[nodiscard]] constexpr std::uint32_t
+clampAgentsPerWorld(const std::uint32_t genomeCount, const std::uint32_t requestedAgentsPerWorld) {
     if (genomeCount == 0) {
         return 0;
     }
@@ -52,21 +54,21 @@ inline constexpr std::uint32_t minimumAgentsPerWorld = 10;
     return std::clamp(requestedAgentsPerWorld, minimum, genomeCount);
 }
 
-[[nodiscard]] constexpr std::uint32_t worldGroupCount(
-    const std::uint32_t genomeCount, const std::uint32_t agentsPerWorld) {
+[[nodiscard]] constexpr std::uint32_t worldGroupCount(const std::uint32_t genomeCount,
+                                                      const std::uint32_t agentsPerWorld) {
     const std::uint32_t clamped = clampAgentsPerWorld(genomeCount, agentsPerWorld);
     return clamped == 0 ? 0 : (genomeCount + clamped - 1) / clamped;
 }
 
-[[nodiscard]] constexpr std::uint32_t logicalWorldCount(
-    const std::uint32_t genomeCount, const std::uint32_t agentsPerWorld,
-    const std::uint32_t trialsPerGenome) {
+[[nodiscard]] constexpr std::uint32_t logicalWorldCount(const std::uint32_t genomeCount,
+                                                        const std::uint32_t agentsPerWorld,
+                                                        const std::uint32_t trialsPerGenome) {
     return worldGroupCount(genomeCount, agentsPerWorld) * trialsPerGenome;
 }
 
-[[nodiscard]] constexpr std::uint32_t logicalWorldForAgent(
-    const std::uint32_t agentIndex, const std::uint32_t agentsPerWorld,
-    const std::uint32_t trialsPerGenome) {
+[[nodiscard]] constexpr std::uint32_t logicalWorldForAgent(const std::uint32_t agentIndex,
+                                                           const std::uint32_t agentsPerWorld,
+                                                           const std::uint32_t trialsPerGenome) {
     if (agentsPerWorld == 0 || trialsPerGenome == 0) {
         return 0;
     }
@@ -75,9 +77,10 @@ inline constexpr std::uint32_t minimumAgentsPerWorld = 10;
     return (genome / agentsPerWorld) * trialsPerGenome + trial;
 }
 
-[[nodiscard]] constexpr std::uint32_t agentsInLogicalWorld(
-    const std::uint32_t genomeCount, const std::uint32_t agentsPerWorld,
-    const std::uint32_t trialsPerGenome, const std::uint32_t worldIndex) {
+[[nodiscard]] constexpr std::uint32_t agentsInLogicalWorld(const std::uint32_t genomeCount,
+                                                           const std::uint32_t agentsPerWorld,
+                                                           const std::uint32_t trialsPerGenome,
+                                                           const std::uint32_t worldIndex) {
     const std::uint32_t clamped = clampAgentsPerWorld(genomeCount, agentsPerWorld);
     if (clamped == 0 || trialsPerGenome == 0 ||
         worldIndex >= logicalWorldCount(genomeCount, clamped, trialsPerGenome)) {
@@ -172,7 +175,7 @@ struct alignas(16) GpuStepParameters {
     float gridCellSize{};
     float wallCollisionPenalty{};
     std::uint32_t agentCount{};
-    std::uint32_t weightsPerGenome{};
+    std::uint32_t brainLayout{}; // packed genome stride and active input/hidden/output counts
     std::uint32_t trialsPerGenome{};
     std::uint32_t worldShape{};
     std::uint32_t gridWidth{};

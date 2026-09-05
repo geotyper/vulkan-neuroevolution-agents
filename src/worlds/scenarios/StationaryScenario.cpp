@@ -6,6 +6,24 @@
 #include <array>
 
 namespace vkexp::worlds::stationary {
+namespace {
+
+float fitness(const AgentState& agent) {
+    return objectiveFitness(agent, completedBeaconPhases(agent));
+}
+
+constexpr neuro::BrainShape brain{neuro::Topology::inputCount - neuro::Topology::taskInputCount -
+                                      neuro::Topology::recurrentMemoryCount,
+                                  neuro::Topology::hiddenCount,
+                                  neuro::Topology::actuatorOutputCount};
+static_assert(brain.fitsCapacity());
+
+} // namespace
+
+const ScenarioDefinition& definition() {
+    static constexpr ScenarioDefinition value{"Stationary", brain, fitness};
+    return value;
+}
 
 Float4 beaconPosition(const std::uint32_t trial, const float worldRadius) {
     constexpr std::array<Float4, 4> normalizedPositions{
@@ -20,8 +38,8 @@ Float4 beaconPosition(const std::uint32_t trial, const float worldRadius) {
 ActiveBeacons beacons(const AgentState& agent, const SimulationStep&) {
     const auto trial = static_cast<std::uint32_t>(std::max(agent.target.z, 0.0F));
     return {{{Beacon{{agent.target.x, agent.target.y, 0.0F, 0.0F},
-                      trialColors[trial % trialColors.size()]},
-               {}}},
+                     trialColors[trial % trialColors.size()]},
+              {}}},
             1};
 }
 

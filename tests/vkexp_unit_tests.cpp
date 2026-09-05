@@ -202,6 +202,25 @@ void testNeuralNetworkContract() {
     check(vkexp::neuro::Topology::inputCount == 52, "Multimodal neural input count");
     check(vkexp::neuro::Topology::outputCount == 8, "Actuator and memory output count");
     check(vkexp::neuro::Topology::weightCount == 1228, "Stable flattened neural weight count");
+
+    const auto& stationary = vkexp::scenarioDefinition(vkexp::BeaconScenario::Stationary);
+    const auto& forage = vkexp::scenarioDefinition(vkexp::BeaconScenario::ForageHome);
+    check(stationary.brain.inputCount == 48 && stationary.brain.hiddenCount == 20 &&
+              stationary.brain.outputCount == 6 && stationary.brain.weightCount() == 1106,
+          "Stationary scenario owns its reactive brain shape");
+    check(forage.brain.inputCount == 52 && forage.brain.hiddenCount == 20 &&
+              forage.brain.outputCount == 8 && forage.brain.weightCount() == 1228,
+          "Forage scenario owns its recurrent brain shape");
+    check(std::string_view(stationary.name) == "Stationary" &&
+              std::string_view(forage.name) == "Forage + home",
+          "Scenario definitions own their display names");
+    const std::uint32_t layout = vkexp::neuro::packBrainLayout(stationary.brain);
+    const vkexp::neuro::BrainShape unpacked = vkexp::neuro::brainShape(layout);
+    check(vkexp::neuro::brainGenomeStride(layout) == vkexp::neuro::Topology::weightCount &&
+              unpacked.inputCount == stationary.brain.inputCount &&
+              unpacked.hiddenCount == stationary.brain.hiddenCount &&
+              unpacked.outputCount == stationary.brain.outputCount,
+          "Packed GPU brain layout preserves capacity and active shape");
 }
 
 void testMultimodalSensors() {
@@ -222,8 +241,9 @@ void testMultimodalSensors() {
                                     vkexp::neuro::Topology::lightChannelsPerReceptor;
     check(closeTo(inputs[tactile], 0.7F), "Wall tactile sector mapping");
     check(closeTo(inputs[tactile + 7 * 2 + 1], 0.8F), "Agent tactile sector mapping");
-    constexpr std::size_t task = tactile + vkexp::neuro::Topology::tactileSectorCount *
-                                               vkexp::neuro::Topology::tactileChannelsPerSector +
+    constexpr std::size_t task = tactile +
+                                 vkexp::neuro::Topology::tactileSectorCount *
+                                     vkexp::neuro::Topology::tactileChannelsPerSector +
                                  vkexp::neuro::Topology::selfInputCount;
     check(closeTo(inputs[task], 0.7F) && closeTo(inputs[task + 1], 1.0F),
           "Cargo and task-state input mapping");
@@ -239,12 +259,10 @@ void testWorldAndBeaconScenarios() {
           "Large world radius");
     vkexp::SimulationStep arrivalSettings{};
     arrivalSettings.arrivalRadiusMultiplier = 0.1F;
-    check(closeTo(vkexp::beaconArrivalRadius(arrivalSettings),
-                  vkexp::beaconVisualRadius * 0.1F),
+    check(closeTo(vkexp::beaconArrivalRadius(arrivalSettings), vkexp::beaconVisualRadius * 0.1F),
           "Minimum arrival multiplier scales the beacon radius");
     arrivalSettings.arrivalRadiusMultiplier = 5.0F;
-    check(closeTo(vkexp::beaconArrivalRadius(arrivalSettings),
-                  vkexp::beaconVisualRadius * 5.0F),
+    check(closeTo(vkexp::beaconArrivalRadius(arrivalSettings), vkexp::beaconVisualRadius * 5.0F),
           "Maximum arrival multiplier scales the beacon radius");
 
     vkexp::AgentState agent{};
@@ -372,8 +390,7 @@ void testForageCycleAndMemory() {
     vkexp::stepAgentCpu(agent, weights, settings);
     check(closeTo(agent.internal.x, 0.0F) && closeTo(agent.internal.y, 0.0F),
           "Home delivery empties cargo and switches the task back to resource");
-    check(vkexp::completedForageCycles(agent) == 1,
-          "Home delivery completes one forage cycle");
+    check(vkexp::completedForageCycles(agent) == 1, "Home delivery completes one forage cycle");
     check(vkexp::agentFitness(agent, settings.beaconScenario) > 2.0F,
           "Completed forage cycle produces positive fitness");
 
@@ -382,8 +399,8 @@ void testForageCycleAndMemory() {
                         beacons.values[0].position.y, 0.0F, 0.022F};
     radiusProbe.motion.w = 1.0F;
     radiusProbe.target = {1.0F, 0.0F, 0.0F, 0.0F};
-    radiusProbe.metrics = {vkexp::beaconVisualRadius * 2.0F,
-                           vkexp::beaconVisualRadius * 2.0F, 0.0F, 0.0F};
+    radiusProbe.metrics = {vkexp::beaconVisualRadius * 2.0F, vkexp::beaconVisualRadius * 2.0F, 0.0F,
+                           0.0F};
     vkexp::neuro::Weights zeroWeights{};
     settings.arrivalRadiusMultiplier = 1.0F;
     vkexp::stepAgentCpu(radiusProbe, zeroWeights, settings);
