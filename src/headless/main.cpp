@@ -9,6 +9,7 @@
 #include "vkexp/simulation/Units.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdlib>
 #include <exception>
@@ -46,6 +47,7 @@ struct Options {
     std::optional<float> trailDepositRate;
     std::optional<float> beaconTrailDepositRate;
     std::optional<float> trailHalfLife;
+    std::optional<float> trailCellSize;
     bool trailEnabled{true};
     bool quiet{};
     std::string savePopulation;
@@ -91,7 +93,9 @@ void printHelp(const char* executable) {
                  "Trail field:\n"
                  "  --trail-deposit <x>      agent mark laid per second (default 4.0)\n"
                  "  --beacon-deposit <x>     beacon mark laid per second (default 12.0)\n"
-                 "  --trail-half-life <x>    seconds for a mark to fade to half (default 6)\n\n"
+                 "  --trail-half-life <x>    seconds for a mark to fade to half (default 6)\n"
+                 "  --trail-cell-size <x>    ground metres per trail cell, 0.02..0.08 "
+                 "(default 0.06)\n\n"
                  "Fitness shaping (sweepable without rebuilding):\n"
                  "  --objective-bonus <x>    score per completed objective (default 2.0)\n"
                  "  --motor-cost <x>         fitness charged per unit of effort (default 0.002)\n"
@@ -197,6 +201,8 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.trailDepositRate = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--beacon-deposit") {
             options.beaconTrailDepositRate = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--trail-cell-size") {
+            options.trailCellSize = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--trail-half-life") {
             options.trailHalfLife = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-agent-collisions") {
@@ -271,6 +277,11 @@ int run(const Options& options) {
     }
     if (options.trailHalfLife) {
         state.physics.trailHalfLife = *options.trailHalfLife;
+    }
+    if (options.trailCellSize) {
+        state.physics.trailCellSize =
+            std::clamp(*options.trailCellSize, vkexp::trail::kernel::TrailCellSizeFinest,
+                       vkexp::trail::kernel::TrailCellSizeCoarsest);
     }
 
     vkexp::EvolutionSettings evolution;

@@ -198,7 +198,8 @@ struct SimulationStep {
     // can be at one cell. The default is the body diameter over the cell size, so
     // a track is as wide as whatever left it; 1.0 fills the cell, which reads
     // better on a large arena where a cell is only a few pixels across.
-    float trailRenderWidth{agentBodyRadius * 2.0F / trail::kernel::TrailCellSize};
+    float trailRenderWidth{agentBodyRadius * 2.0F / trail::kernel::TrailCellSizeDefault};
+    float trailCellSize{trail::kernel::TrailCellSizeDefault}; // m of ground per cell
     bool trailEnabled{true};
     FitnessWeights fitness{};
     std::uint32_t beaconMotionSeed{};
@@ -213,9 +214,9 @@ struct SimulationStep {
 
 // Cells across the arena's bounding square. Constant in metres, so world size
 // changes how much ground there is, not how finely it is smelled.
-[[nodiscard]] inline std::uint32_t trailWidthForWorld(const float worldRadius) {
-    return static_cast<std::uint32_t>(
-        std::ceil((worldRadius * 2.0F) / trail::kernel::TrailCellSize));
+[[nodiscard]] inline std::uint32_t trailWidthForWorld(const float worldRadius,
+                                                      const float cellSize) {
+    return static_cast<std::uint32_t>(std::ceil((worldRadius * 2.0F) / cellSize));
 }
 
 [[nodiscard]] inline float lightRangeForWorld(const SimulationStep& settings) {

@@ -344,7 +344,7 @@ float SimulationDriver::gridCellSize() const {
 }
 
 void SimulationDriver::updateTrailDimensions() {
-    trailWidth_ = trailWidthForWorld(state_.physics.worldRadius);
+    trailWidth_ = trailWidthForWorld(state_.physics.worldRadius, state_.physics.trailCellSize);
     trailCellsPerWorld_ = trailWidth_ * trailWidth_;
     state_.trail = {trailField_.buffer(), trailField_.size(), trailWidth_, trailCellsPerWorld_};
 }
@@ -355,7 +355,8 @@ void SimulationDriver::ensureTrailCapacity() {
     // renderer, which writes its descriptor once, so a later reallocation would
     // leave the renderer pointing at freed memory. Never growing it is cheaper
     // than teaching two modules to renegotiate.
-    const std::uint32_t maximumWidth = trailWidthForWorld(worldRadiusForSize(WorldSize::Large));
+    const std::uint32_t maximumWidth =
+        trailWidthForWorld(worldRadiusForSize(WorldSize::Large), state_.physics.trailCellSize);
     const auto genomeCount = static_cast<std::uint32_t>(evolution_.population().size());
     const std::uint32_t maximumWorlds =
         logicalWorldCount(genomeCount, minimumAgentsPerWorld, config_.trialsPerGenome);
@@ -498,7 +499,7 @@ GpuStepParameters SimulationDriver::stepParameters(const std::uint32_t generatio
         settings.beaconPhase,
         settings.beaconPhaseChanged ? 1U : 0U,
         scenario.beaconCount,
-        trail::kernel::TrailCellSize,
+        settings.trailCellSize,
         trail::kernel::trailSurvival(
             trail::kernel::trailDecayRateForHalfLife(settings.trailHalfLife), settings.deltaTime),
         settings.trailDepositRate * settings.deltaTime * trail::kernel::TrailFixedPointScale,

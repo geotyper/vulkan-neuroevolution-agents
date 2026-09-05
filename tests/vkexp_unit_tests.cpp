@@ -247,8 +247,11 @@ void testNeuralNetworkContract() {
     // readings collapse into one number and carry no gradient.
     const float antennaSpread =
         2.0F * kernel::BrainAntennaLength * std::sin(kernel::BrainAntennaHalfSpread);
-    check(antennaSpread > vkexp::trail::kernel::TrailCellSize * 2.0F,
-          "Outer antenna tips are more than two trail cells apart");
+    // Strictly more than one cell apart is the guarantee that matters: two points
+    // further apart than a cell is wide cannot share a cell, whatever the phase.
+    // At the coarsest 8 cm setting the 15.5 cm spread leaves 1.9 cells.
+    check(antennaSpread > vkexp::trail::kernel::TrailCellSizeCoarsest,
+          "Outer antenna tips cannot share a cell at the coarsest trail resolution");
     check(kernel::BrainSelfOffset + kernel::BrainSelfInputCount == kernel::BrainTaskOffset,
           "Task block follows the self block");
     check(kernel::BrainTaskOffset + kernel::BrainTaskInputCount ==

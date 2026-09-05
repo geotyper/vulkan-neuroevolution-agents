@@ -25,9 +25,9 @@ struct DrawParameters {
     std::uint32_t trialsPerGenome{};
     std::uint32_t trailWidth{};
     float trailRenderWidth{};
+    float trailCellSize{};
     std::uint32_t reserved0{};
     std::uint32_t reserved1{};
-    std::uint32_t reserved2{};
     ScenarioParameterBlock scenario;
 };
 // Still inside the 128 bytes Vulkan guarantees for maxPushConstantsSize; the
@@ -77,6 +77,7 @@ void AgentRenderer::createPipeline(AppContext& context) {
                          state_.trail.size)
             .update(device, descriptorSets_[index]);
     }
+    boundTrailBuffer_ = state_.trail.buffer;
 
     VkPushConstantRange pushRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(DrawParameters)};
     const VkDescriptorSetLayout setLayout = descriptorSetLayout_.get();
@@ -185,6 +186,19 @@ void AgentRenderer::onUpdate(AppContext& context, const FrameInfo&) {
     }
 }
 
+void AgentRenderer::refreshTrailDescriptor(const VkDevice device) {
+    if (state_.trail.buffer == boundTrailBuffer_ || state_.trail.buffer == VK_NULL_HANDLE) {
+        return;
+    }
+    for (const VkDescriptorSet set : descriptorSets_) {
+        DescriptorSetWriter{}
+            .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, state_.trail.buffer, 0,
+                         state_.trail.size)
+            .update(device, set);
+    }
+    boundTrailBuffer_ = state_.trail.buffer;
+}
+
 void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, const float scaleY,
                          const float worldRadius, const std::uint32_t mode, const float opacity,
                          const std::uint32_t vertices, const std::uint32_t instances) const {
@@ -206,7 +220,7 @@ void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, con
         state_.agents.trialsPerGenome,
         state_.trail.width,
         state_.physics.trailRenderWidth,
-        0U,
+        state_.physics.trailCellSize,
         0U,
         0U,
         scenarioDefinition(settings.beaconScenario).gpuParameters(settings)};
@@ -248,6 +262,7 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     vkCmdSetViewport(commands, 0, 1, &viewport);
     vkCmdSetScissor(commands, 0, 1, &scissor);
     vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.get());
+    refreshTrailDescriptor(context.vulkan.device());
     const VkDescriptorSet descriptorSet = descriptorSets_[state_.agents.currentIndex];
     vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_.get(), 0, 1,
                             &descriptorSet, 0, nullptr);
@@ -264,7 +279,7 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     // The field goes on top of the arena and under everything that moves, so a
     // path reads as ground rather than as another agent.
     if (state_.display.trail && state_.physics.trailEnabled && state_.trail.cellsPerWorld > 0) {
-        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 5, 0.85F, 6,
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 5, 0.85F, 8 * 3,
              state_.trail.cellsPerWorld);
     }
     if (state_.display.agents) {

@@ -39,9 +39,9 @@ layout(push_constant) uniform DrawParameters {
     uint trialsPerGenome;
     uint trailWidth;
     float trailRenderWidth;
+    float trailCellSize;
     uint reserved0;
     uint reserved1;
-    uint reserved2;
     ScenarioParameters scenario;
 } params;
 
@@ -78,16 +78,17 @@ void main() {
         const uint cell = uint(gl_InstanceIndex);
         const uint cellX = cell % params.trailWidth;
         const uint cellY = cell / params.trailWidth;
-        const vec2 corners[6] = vec2[](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
-                                       vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
-        // Shrink the quad about the cell centre. The mark still lives in exactly
-        // one cell; this only decides how much of that cell is painted, so a
-        // track can be drawn as narrow as the body that left it.
-        const float fill = clamp(params.trailRenderWidth, 0.02, 1.0);
-        const vec2 corner = (corners[gl_VertexIndex] - vec2(0.5)) * fill + vec2(0.5);
-        const vec2 cellOrigin = vec2(float(cellX), float(cellY)) * TrailCellSize;
+        // A disc centred in the cell rather than the cell itself. The mark still
+        // lives in exactly one cell; this only decides how much of that cell is
+        // painted, so a track can be drawn as narrow as the body that left it.
+        // Below about 1.4 cells the discs stop touching their diagonal
+        // neighbours and the path reads as dots -- that is the grid showing
+        // through, not missing deposits, and mode 6 is the answer to it.
+        const float fill = clamp(params.trailRenderWidth, 0.02, 1.6);
+        const vec2 cellCentre = (vec2(float(cellX), float(cellY)) + vec2(0.5)) * params.trailCellSize -
+                                vec2(params.worldRadius);
         const vec2 cellWorld =
-            cellOrigin + corner * TrailCellSize - vec2(params.worldRadius);
+            cellCentre + circleVertex(gl_VertexIndex, fill * params.trailCellSize * 0.5, 8);
 
         const uint cellsPerWorld = params.trailWidth * params.trailWidth;
         vec3 deposit;

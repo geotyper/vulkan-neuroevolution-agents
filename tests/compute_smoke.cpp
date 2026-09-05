@@ -199,7 +199,7 @@ makeStepParameters(const vkexp::SimulationStep& settings, const std::uint32_t ag
             settings.beaconPhase,
             settings.beaconPhaseChanged ? 1U : 0U,
             scenario.beaconCount,
-            vkexp::trail::kernel::TrailCellSize,
+            settings.trailCellSize,
             vkexp::trail::kernel::trailSurvival(
                 vkexp::trail::kernel::trailDecayRateForHalfLife(settings.trailHalfLife),
                 settings.deltaTime),
@@ -247,7 +247,8 @@ public:
         // The trail field is GPU-only state, so the parity cases run with it off
         // and this buffer stays zero; the harness still has to bind it, and
         // runTrailFieldProbe drives it for real.
-        trailWidth_ = vkexp::trailWidthForWorld(worldRadius);
+        trailWidth_ =
+            vkexp::trailWidthForWorld(worldRadius, vkexp::trail::kernel::TrailCellSizeDefault);
         trailCellsPerWorld_ = trailWidth_ * trailWidth_;
         trail.create(context.physicalDevice(), context.device(),
                      {sizeof(std::uint32_t) * trailCellsPerWorld_ * worldCount *
@@ -563,7 +564,7 @@ void runTrailFieldProbe(vkexp::HeadlessComputeContext& context) {
             agent.pose.x + std::cos(tipAngle) * bk::BrainAntennaLength,
             agent.pose.y + std::sin(tipAngle) * bk::BrainAntennaLength};
         const std::uint32_t cell = vkexp::trail::kernel::trailCellIndex(
-            tip, worldRadius, vkexp::trail::kernel::TrailCellSize, harness.trailWidth());
+            tip, worldRadius, settings.trailCellSize, harness.trailWidth());
         harness.markTrailCell(0, cell, 0.0F, 4.0F, 0.0F);
 
         harness.inputAgents.write(&agent, sizeof(agent));
