@@ -77,8 +77,6 @@ private:
     [[nodiscard]] std::uint64_t trailFieldBudget() const;
     [[nodiscard]] std::uint64_t trailFieldBytes(float cellSize) const;
     void updateTrailDimensions();
-    void ensureTrailCapacity();
-    void updateTrailDescriptors();
     [[nodiscard]] GpuStepParameters stepParameters(std::uint32_t generationStep) const;
     [[nodiscard]] std::vector<AgentState> makeInitialAgents() const;
 

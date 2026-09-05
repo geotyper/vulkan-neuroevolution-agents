@@ -35,12 +35,23 @@ void require(const bool condition, const std::string& message) {
 }
 
 // Runs a short generation and checks the population actually moved through it.
+// The field is allocated once and never resized, so its handle is the same for
+// the life of the driver. That invariant is what makes every descriptor holding
+// it -- three compute sets and the renderer's two -- correct by construction
+// rather than by remembering to refresh them, which is what went wrong twice.
+VkBuffer expectedTrailBuffer = VK_NULL_HANDLE;
+
 void stepAndCheck(vkexp::HeadlessComputeContext& context, vkexp::SimulationDriver& driver,
                   vkexp::SimulationState& state, const std::string& what) {
     std::cout << "  " << what << ": " << state.worlds.worldCount << " worlds, trail "
               << state.trail.width << "x" << state.trail.width << " cells of "
               << state.physics.trailCellSize << " m" << std::endl;
     require(state.trail.buffer != VK_NULL_HANDLE, what + ": trail field is published");
+    if (expectedTrailBuffer == VK_NULL_HANDLE) {
+        expectedTrailBuffer = state.trail.buffer;
+    }
+    require(state.trail.buffer == expectedTrailBuffer,
+            what + ": trail field was not reallocated, so no descriptor went stale");
     require(state.trail.cellsPerWorld > 0, what + ": trail field has cells");
     require(state.worlds.worldCount > 0, what + ": at least one logical world");
 
@@ -122,29 +133,32 @@ int run() {
                 "trail resolution: never refined past the finest setting");
         require(static_cast<std::uint64_t>(state.trail.cellsPerWorld) * state.worlds.worldCount *
                         vkexp::trail::kernel::TrailChannels * sizeof(std::uint32_t) <=
-                    vkexp::trailFieldByteBudget,
-                "trail resolution: field stays inside the byte budget");
+                    state.trail.size,
+                "trail resolution: the chosen field fits the fixed allocation");
         stepAndCheck(context, driver, state, "trail resolution");
     }
 
-    // 4. Every arena against every group size the UI offers, at the finest trail
-    //    setting so the budget clamp is under load throughout. This is the space
-    //    the reported failure lived in: medium arena, twelve agents per world.
+    // 4. Every arena against every group size the UI offers, at both ends of the
+    //    resolution range. The reported crash was on a medium arena below 25
+    //    agents per world at the *coarsest* grid, where the field is 31 MB --
+    //    which is what ruled capacity out and pointed back at lifetimes.
     state.physics.trailCellSize =
         vkexp::trailCellSizeForBodyFraction(vkexp::trailCellFractionFinest);
     for (const vkexp::WorldSize size :
          {vkexp::WorldSize::Small, vkexp::WorldSize::Medium, vkexp::WorldSize::Large}) {
-        for (const std::uint32_t agentsPerWorld : {29U, 12U, 10U}) {
-            state.physics.worldSize = size;
-            state.physics.worldRadius = vkexp::worldRadiusForSize(size);
-            state.physics.lightSensorRange = vkexp::lightRangeForWorld(state.physics);
-            state.worlds.requestedAgentsPerWorld = agentsPerWorld;
-            state.physics.trailCellSize =
-                vkexp::trailCellSizeForBodyFraction(vkexp::trailCellFractionFinest);
-            driver.restart();
-            stepAndCheck(context, driver, state,
-                         "arena " + std::to_string(static_cast<int>(size)) + " with " +
-                             std::to_string(agentsPerWorld) + " agents per world");
+        for (const std::uint32_t agentsPerWorld : {29U, 24U, 12U, 10U}) {
+            for (const float fraction :
+                 {vkexp::trailCellFractionCoarsest, vkexp::trailCellFractionFinest}) {
+                state.physics.worldSize = size;
+                state.physics.worldRadius = vkexp::worldRadiusForSize(size);
+                state.physics.lightSensorRange = vkexp::lightRangeForWorld(state.physics);
+                state.worlds.requestedAgentsPerWorld = agentsPerWorld;
+                state.physics.trailCellSize = vkexp::trailCellSizeForBodyFraction(fraction);
+                driver.restart();
+                stepAndCheck(context, driver, state,
+                             "arena " + std::to_string(static_cast<int>(size)) + ", " +
+                                 std::to_string(agentsPerWorld) + " agents/world");
+            }
         }
     }
 

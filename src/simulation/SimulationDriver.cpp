@@ -88,11 +88,20 @@ void SimulationDriver::createStepResources() {
         {stepParameterBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, hostMemory});
     stepParameterStaging_.resize(config_.maximumStepsPerBatch);
 
+    // The field is allocated once, at the budget, and never reallocated. Every
+    // resize so far has been a lifetime bug rather than a capacity one -- a
+    // descriptor somewhere kept pointing at the buffer that had just been freed --
+    // and the numbers say resizing buys nothing: the coarsest grid on the largest
+    // arena across every world the population can be split into is 150 MB against
+    // a 256 MiB budget. A fixed allocation makes the whole class of bug
+    // unreachable instead of patching each holder of a handle.
+    trailField_.create(physicalDevice_, device_,
+                       {trailFieldBudget(),
+                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
     updateWorldLayout();
     updateGridDimensions();
     ensureGridCapacity();
     updateTrailDimensions();
-    ensureTrailCapacity();
     const VkDeviceSize gridLinkBytes = sizeof(std::int32_t) * agentCount;
     gridNext_.create(physicalDevice_, device_, {gridLinkBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
 
@@ -375,9 +384,9 @@ void SimulationDriver::updateTrailDimensions() {
     // two hundred worlds asks for gigabytes, and the first version both allocated
     // and cleared the worst case -- largest arena, most worlds -- whatever was
     // actually running, which is what made a resolution change look like a hang.
-    const std::uint64_t budget = trailFieldBudget();
-    // Walk up the offered resolutions rather than doubling, so whatever survives
-    // is a setting the UI can name back to the user.
+    // The capacity is fixed, so the resolution is what gives way, never the
+    // allocation. Walk up the offered resolutions rather than doubling the cell,
+    // so whatever survives is a setting the UI can name back to the user.
     std::size_t choice = 0;
     while (choice + 1 < trailCellFractions.size() &&
            trailCellSizeForBodyFraction(trailCellFractions[choice]) <
@@ -385,7 +394,8 @@ void SimulationDriver::updateTrailDimensions() {
         ++choice;
     }
     while (choice + 1 < trailCellFractions.size() &&
-           trailFieldBytes(trailCellSizeForBodyFraction(trailCellFractions[choice])) > budget) {
+           trailFieldBytes(trailCellSizeForBodyFraction(trailCellFractions[choice])) >
+               trailField_.size()) {
         ++choice;
     }
     const float cellSize = trailCellSizeForBodyFraction(trailCellFractions[choice]);
@@ -394,56 +404,10 @@ void SimulationDriver::updateTrailDimensions() {
     trailWidth_ = trailWidthForWorld(state_.physics.worldRadius, cellSize);
     trailCellsPerWorld_ = trailWidth_ * trailWidth_;
     trailActiveBytes_ = static_cast<VkDeviceSize>(trailFieldBytes(cellSize));
+    if (trailActiveBytes_ > trailField_.size()) {
+        throw std::runtime_error("Trail field does not fit even at the coarsest resolution");
+    }
     state_.trail = {trailField_.buffer(), trailField_.size(), trailWidth_, trailCellsPerWorld_};
-}
-
-void SimulationDriver::ensureTrailCapacity() {
-    // Sized for what is running, not for the worst case the settings could reach.
-    // Every path that changes the arena, the world count or the resolution goes
-    // through a reset that waits for the device to be idle first, so growing here
-    // is safe; the renderer notices the new handle and rewrites its own descriptor.
-    if (trailActiveBytes_ > 0 && trailField_.size() >= trailActiveBytes_) {
-        return;
-    }
-    trailField_.reset();
-    trailField_.create(
-        physicalDevice_, device_,
-        {trailActiveBytes_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
-    updateTrailDescriptors();
-    state_.trail = {trailField_.buffer(), trailField_.size(), trailWidth_, trailCellsPerWorld_};
-}
-
-void SimulationDriver::updateTrailDescriptors() {
-    // Every set that binds the field, mirroring updateGridDescriptors. Missing
-    // the step sets here is what made a world-size change fault: the field was
-    // reallocated, decay and deposit followed it, and agent_step kept reading the
-    // buffer that had just been freed.
-    if (trailDecayDescriptorSet_ != VK_NULL_HANDLE) {
-        DescriptorSetWriter{}
-            .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
-                         trailField_.size())
-            .update(device_, trailDecayDescriptorSet_);
-    }
-    for (std::size_t index = 0; index < stepDescriptorSets_.size(); ++index) {
-        if (stepDescriptorSets_[index] != VK_NULL_HANDLE) {
-            DescriptorSetWriter{}
-                .writeBuffer(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
-                             trailField_.size())
-                .update(device_, stepDescriptorSets_[index]);
-        }
-        if (trailDepositDescriptorSets_[index] != VK_NULL_HANDLE) {
-            DescriptorSetWriter{}
-                .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
-                             trailField_.size())
-                .update(device_, trailDepositDescriptorSets_[index]);
-        }
-    }
-}
-
-void SimulationDriver::updateGridDimensions() {
-    gridWidth_ =
-        static_cast<std::uint32_t>(std::ceil((state_.physics.worldRadius * 2.0F) / gridCellSize()));
-    gridCellsPerWorld_ = gridWidth_ * gridWidth_;
 }
 
 void SimulationDriver::updateWorldLayout() {
@@ -462,12 +426,10 @@ void SimulationDriver::updateWorldLayout() {
     }
 }
 
-void SimulationDriver::refreshGridForWorldSize() {
-    updateWorldLayout();
-    ensureGridCapacity();
-    updateGridDimensions();
-    updateTrailDimensions();
-    ensureTrailCapacity();
+void SimulationDriver::updateGridDimensions() {
+    gridWidth_ =
+        static_cast<std::uint32_t>(std::ceil((state_.physics.worldRadius * 2.0F) / gridCellSize()));
+    gridCellsPerWorld_ = gridWidth_ * gridWidth_;
 }
 
 void SimulationDriver::ensureGridCapacity() {
@@ -485,6 +447,13 @@ void SimulationDriver::ensureGridCapacity() {
     gridHeads_.create(physicalDevice_, device_,
                       {requiredBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
     updateGridDescriptors();
+}
+
+void SimulationDriver::refreshGridForWorldSize() {
+    updateWorldLayout();
+    ensureGridCapacity();
+    updateGridDimensions();
+    updateTrailDimensions();
 }
 
 void SimulationDriver::updateGridDescriptors() {
