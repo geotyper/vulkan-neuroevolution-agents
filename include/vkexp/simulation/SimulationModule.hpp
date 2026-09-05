@@ -29,6 +29,9 @@ private:
     void resetGeneration();
     void finishGeneration();
     void uploadPopulation();
+    void updateWorldLayout();
+    void ensureGridCapacity(AppContext& context);
+    void updateGridDescriptors(VkDevice device);
     void updateGridDimensions();
     [[nodiscard]] GpuStepParameters stepParameters(std::uint32_t generationStep) const;
     [[nodiscard]] std::vector<AgentState> makeInitialAgents() const;
@@ -54,7 +57,7 @@ private:
     ComputePipeline gridBuildPipeline_;
     std::vector<AgentState> agents_;
     std::uint32_t gridWidth_{};
-    std::uint32_t gridCellsPerTrial_{};
+    std::uint32_t gridCellsPerWorld_{};
     bool finishPending_{};
     bool hostUploadPending_{};
 };

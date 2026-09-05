@@ -326,7 +326,7 @@ void runNeuralStepParity(
     }
 }
 
-void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
+void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool isolatedWorlds) {
     constexpr std::size_t agentCount = 2;
     std::array<vkexp::AgentState, agentCount> initial{};
     initial[0].pose = {-0.01F, 0.0F, 0.0F, 0.022F};
@@ -335,6 +335,7 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
         initial[index].motion.w = 1.0F;
         initial[index].target = {-1.0F, 0.0F, 0.0F, static_cast<float>(index)};
         initial[index].metrics = {1.0F, 1.0F, 0.0F, 0.0F};
+        initial[index].penalties.w = isolatedWorlds ? static_cast<float>(index) : 0.0F;
     }
     initial[1].signal = {1.0F, 0.0F, 0.0F, 1.0F};
 
@@ -366,10 +367,16 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
     const std::uint32_t gridWidth =
         static_cast<std::uint32_t>(std::ceil(settings.worldRadius * 2.0F / cellSize));
     const std::uint32_t gridCells = gridWidth * gridWidth;
-    std::vector<std::int32_t> heads(gridCells, -1);
+    const std::uint32_t worldCount = isolatedWorlds ? 2U : 1U;
+    std::vector<std::int32_t> heads(gridCells * worldCount, -1);
     const std::uint32_t center = gridWidth / 2;
-    heads[center * gridWidth + center] = 1;
-    const std::array<std::int32_t, agentCount> links{-1, 0};
+    const std::uint32_t centerCell = center * gridWidth + center;
+    heads[centerCell] = isolatedWorlds ? 0 : 1;
+    if (isolatedWorlds) {
+        heads[gridCells + centerCell] = 1;
+    }
+    const std::array<std::int32_t, agentCount> links{
+        -1, isolatedWorlds ? -1 : 0};
     gridHeads.create(context.physicalDevice(), context.device(),
                      {heads.size() * sizeof(std::int32_t),
                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
@@ -470,11 +477,20 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context) {
         std::max({result[0].agentTouch0.x, result[0].agentTouch0.y, result[0].agentTouch0.z,
                   result[0].agentTouch0.w, result[0].agentTouch1.x, result[0].agentTouch1.y,
                   result[0].agentTouch1.z, result[0].agentTouch1.w});
-    if (resultDistance <= initialDistance || firstTouch <= 0.0F) {
-        throw std::runtime_error("GPU agents did not separate and report tactile contact");
-    }
-    if (result[0].signal.x <= 0.55F) {
-        throw std::runtime_error("GPU photoreceptor did not observe another agent's red light");
+    if (isolatedWorlds) {
+        if (std::abs(resultDistance - initialDistance) > 0.0001F || firstTouch > 0.0F) {
+            throw std::runtime_error("GPU agents interacted across logical world boundaries");
+        }
+        if (result[0].signal.x > 0.55F) {
+            throw std::runtime_error("GPU photoreceptor observed light from another world");
+        }
+    } else {
+        if (resultDistance <= initialDistance || firstTouch <= 0.0F) {
+            throw std::runtime_error("GPU agents did not separate and report tactile contact");
+        }
+        if (result[0].signal.x <= 0.55F) {
+            throw std::runtime_error("GPU photoreceptor did not observe another agent's red light");
+        }
     }
 }
 
@@ -488,7 +504,8 @@ int run() {
                         vkexp::BeaconScenario::AlternatingDiagonals);
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::Rotating);
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::RandomMovement);
-    runAgentInteractionTest(context);
+    runAgentInteractionTest(context, false);
+    runAgentInteractionTest(context, true);
     std::cout << "Headless compute and CPU/GPU neural parity tests passed on "
               << context.deviceName() << '\n';
     return 0;

@@ -25,9 +25,9 @@ struct DrawParameters {
     float beaconMotionTime{};
     float beaconTeleportProbability{};
     std::uint32_t beaconMotionSeed{};
-    std::uint32_t reserved1{};
-    std::uint32_t reserved2{};
-    std::uint32_t reserved3{};
+    std::uint32_t selectedWorld{};
+    std::uint32_t agentsPerWorld{};
+    std::uint32_t trialsPerGenome{};
 };
 static_assert(sizeof(DrawParameters) == 64);
 
@@ -196,9 +196,9 @@ void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, con
         state_.physics.deltaTime * static_cast<float>(state_.statistics.step),
         state_.physics.beaconTeleportProbability,
         static_cast<std::uint32_t>(state_.statistics.generation),
-        0,
-        0,
-        0};
+        state_.worlds.selectedWorld,
+        state_.worlds.agentsPerWorld,
+        state_.agents.trialsPerGenome};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(parameters), &parameters);
     vkCmdDraw(commands, vertices, instances, 0, 0);
@@ -246,18 +246,16 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     const float scaleX = aspect >= 1.0F ? baseScale / aspect : baseScale;
     const float scaleY = aspect >= 1.0F ? baseScale : baseScale * aspect;
     const std::uint32_t arenaVertices = state_.physics.worldShape == WorldShape::Circle ? 192U : 6U;
+    const std::uint32_t visibleAgentCount =
+        agentsInLogicalWorld(state_.agents.genomeCount, state_.worlds.agentsPerWorld,
+                             state_.agents.trialsPerGenome, state_.worlds.selectedWorld);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 3, 1.0F, arenaVertices, 1);
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48,
-         state_.agents.agentCount);
+    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48, visibleAgentCount);
     const std::uint32_t beaconInstances =
-        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals
-            ? 2U
-            : state_.agents.trialsPerGenome;
+        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals ? 2U : 1U;
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 1, 0.90F, 48, beaconInstances);
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 0, 0.88F, 48,
-         state_.agents.agentCount);
-    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 4, 0.95F, 3,
-         state_.agents.agentCount);
+    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 0, 0.88F, 48, visibleAgentCount);
+    draw(commands, scaleX, scaleY, state_.physics.worldRadius, 4, 0.95F, 3, visibleAgentCount);
     vkCmdEndRendering(commands);
     cmdImageBarrier(commands, target_.image(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,

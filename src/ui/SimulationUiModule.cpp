@@ -56,7 +56,7 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::ProgressBar(static_cast<float>(state_.statistics.step) /
                            static_cast<float>(std::max(state_.controls.stepsPerGeneration, 1U)),
                        ImVec2(-1.0F, 0.0F));
-    ImGui::Text("Agents: %u  Genomes: %u x %u trials", state_.agents.agentCount,
+    ImGui::Text("GPU agents: %u  Genomes: %u x %u trials", state_.agents.agentCount,
                 state_.agents.genomeCount, state_.agents.trialsPerGenome);
     ImGui::Text("Frame %.2f ms", frame.deltaSeconds * 1000.0F);
     ImGui::Checkbox("Pause", &state_.controls.paused);
@@ -71,6 +71,27 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         state_.controls.resetRequested = true;
     }
     ImGui::SeparatorText("World");
+    int requestedAgentsPerWorld = static_cast<int>(state_.worlds.requestedAgentsPerWorld);
+    const int populationSize = static_cast<int>(std::max(state_.agents.genomeCount, 1U));
+    const int minimumGroupSize =
+        std::min(static_cast<int>(minimumAgentsPerWorld), populationSize);
+    if (ImGui::SliderInt("Agents / world", &requestedAgentsPerWorld, minimumGroupSize,
+                         populationSize)) {
+        state_.worlds.requestedAgentsPerWorld =
+            static_cast<std::uint32_t>(requestedAgentsPerWorld);
+        state_.controls.resetRequested = true;
+    }
+    if (ImGui::Button("12 agents")) {
+        state_.worlds.requestedAgentsPerWorld = std::min(12U, state_.agents.genomeCount);
+        state_.controls.resetRequested = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("All agents")) {
+        state_.worlds.requestedAgentsPerWorld = state_.agents.genomeCount;
+        state_.controls.resetRequested = true;
+    }
+    ImGui::TextDisabled("%u groups x %u trials = %u worlds", state_.worlds.groupCount,
+                        state_.agents.trialsPerGenome, state_.worlds.worldCount);
     int worldSize = static_cast<int>(state_.physics.worldSize);
     constexpr const char* worldSizes[] = {"Small (x1)", "Medium (x1.5)", "Large (x3)"};
     if (ImGui::Combo("World size", &worldSize, worldSizes, 3)) {
@@ -187,6 +208,23 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SetNextWindowPos(ImVec2(360.0F, 16.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(1040.0F, 820.0F), ImGuiCond_FirstUseEver);
     ImGui::Begin("Agent World");
+    if (state_.worlds.worldCount > 0) {
+        int visibleWorld = static_cast<int>(state_.worlds.selectedWorld + 1);
+        if (ImGui::SliderInt("Visible world", &visibleWorld, 1,
+                             static_cast<int>(state_.worlds.worldCount))) {
+            state_.worlds.selectedWorld = static_cast<std::uint32_t>(visibleWorld - 1);
+        }
+        const std::uint32_t visibleGroup =
+            state_.worlds.selectedWorld / state_.agents.trialsPerGenome;
+        const std::uint32_t visibleTrial =
+            state_.worlds.selectedWorld % state_.agents.trialsPerGenome;
+        const std::uint32_t visibleAgentCount =
+            agentsInLogicalWorld(state_.agents.genomeCount, state_.worlds.agentsPerWorld,
+                                 state_.agents.trialsPerGenome, state_.worlds.selectedWorld);
+        ImGui::TextDisabled("Group %u / %u, trial %u / %u, %u agents", visibleGroup + 1,
+                            state_.worlds.groupCount, visibleTrial + 1,
+                            state_.agents.trialsPerGenome, visibleAgentCount);
+    }
     const ImVec2 available = ImGui::GetContentRegionAvail();
     if (available.x >= 64.0F && available.y >= 64.0F) {
         state_.viewport.requestedWidth = static_cast<std::uint32_t>(std::floor(available.x));

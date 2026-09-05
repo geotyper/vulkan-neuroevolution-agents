@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -26,6 +27,7 @@ enum class BeaconScenario : std::uint32_t {
 };
 
 inline constexpr float smallWorldRadius = 1.84F;
+inline constexpr std::uint32_t minimumAgentsPerWorld = 10;
 
 [[nodiscard]] constexpr float worldRadiusForSize(const WorldSize size) {
     switch (size) {
@@ -37,6 +39,51 @@ inline constexpr float smallWorldRadius = 1.84F;
         return smallWorldRadius * 3.0F;
     }
     return smallWorldRadius;
+}
+
+[[nodiscard]] constexpr std::uint32_t clampAgentsPerWorld(
+    const std::uint32_t genomeCount, const std::uint32_t requestedAgentsPerWorld) {
+    if (genomeCount == 0) {
+        return 0;
+    }
+    const std::uint32_t minimum = std::min(minimumAgentsPerWorld, genomeCount);
+    return std::clamp(requestedAgentsPerWorld, minimum, genomeCount);
+}
+
+[[nodiscard]] constexpr std::uint32_t worldGroupCount(
+    const std::uint32_t genomeCount, const std::uint32_t agentsPerWorld) {
+    const std::uint32_t clamped = clampAgentsPerWorld(genomeCount, agentsPerWorld);
+    return clamped == 0 ? 0 : (genomeCount + clamped - 1) / clamped;
+}
+
+[[nodiscard]] constexpr std::uint32_t logicalWorldCount(
+    const std::uint32_t genomeCount, const std::uint32_t agentsPerWorld,
+    const std::uint32_t trialsPerGenome) {
+    return worldGroupCount(genomeCount, agentsPerWorld) * trialsPerGenome;
+}
+
+[[nodiscard]] constexpr std::uint32_t logicalWorldForAgent(
+    const std::uint32_t agentIndex, const std::uint32_t agentsPerWorld,
+    const std::uint32_t trialsPerGenome) {
+    if (agentsPerWorld == 0 || trialsPerGenome == 0) {
+        return 0;
+    }
+    const std::uint32_t genome = agentIndex / trialsPerGenome;
+    const std::uint32_t trial = agentIndex % trialsPerGenome;
+    return (genome / agentsPerWorld) * trialsPerGenome + trial;
+}
+
+[[nodiscard]] constexpr std::uint32_t agentsInLogicalWorld(
+    const std::uint32_t genomeCount, const std::uint32_t agentsPerWorld,
+    const std::uint32_t trialsPerGenome, const std::uint32_t worldIndex) {
+    const std::uint32_t clamped = clampAgentsPerWorld(genomeCount, agentsPerWorld);
+    if (clamped == 0 || trialsPerGenome == 0 ||
+        worldIndex >= logicalWorldCount(genomeCount, clamped, trialsPerGenome)) {
+        return 0;
+    }
+    const std::uint32_t group = worldIndex / trialsPerGenome;
+    const std::uint32_t firstGenome = group * clamped;
+    return std::min(clamped, genomeCount - firstGenome);
 }
 
 struct alignas(16) Float4 {
@@ -53,7 +100,7 @@ struct alignas(16) AgentState {
     Float4 signal;      // emitted RGB and intensity
     Float4 target;      // stationary beacon.xy, trial id, completed-phase bit mask
     Float4 metrics;     // phase start/min distance, motor cost, completed-phase progress
-    Float4 penalties;   // accumulated wall, agent, hazard, and reserved penalties
+    Float4 penalties;   // wall/agent/hazard penalties and logical world id
     Float4 wallTouch0;  // wall contact sectors 0..3
     Float4 wallTouch1;  // wall contact sectors 4..7
     Float4 agentTouch0; // agent contact sectors 0..3
@@ -120,7 +167,7 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t trialsPerGenome{};
     std::uint32_t worldShape{};
     std::uint32_t gridWidth{};
-    std::uint32_t gridCellsPerTrial{};
+    std::uint32_t gridCellsPerWorld{};
     std::uint32_t agentCollisionsEnabled{};
     std::uint32_t agentLightEnabled{};
     std::uint32_t beaconScenario{};

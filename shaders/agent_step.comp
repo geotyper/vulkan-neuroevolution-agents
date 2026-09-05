@@ -62,7 +62,7 @@ layout(push_constant) uniform StepParameters {
     uint trialsPerGenome;
     uint worldShape;
     uint gridWidth;
-    uint gridCellsPerTrial;
+    uint gridCellsPerWorld;
     uint agentCollisionsEnabled;
     uint agentLightEnabled;
     uint beaconScenario;
@@ -221,6 +221,7 @@ void main() {
 
     Agent agent = inputAgents[id];
     const uint trial = id % params.trialsPerGenome;
+    const uint world = uint(max(agent.penalties.w, 0.0) + 0.5);
     vec3 radiance[LightReceptorCount];
     for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
         radiance[receptor] = vec3(0.0);
@@ -269,7 +270,7 @@ void main() {
                 any(greaterThanEqual(cell, ivec2(int(params.gridWidth))))) {
                 continue;
             }
-            const uint cellIndex = trial * params.gridCellsPerTrial +
+            const uint cellIndex = world * params.gridCellsPerWorld +
                                    uint(cell.y) * params.gridWidth + uint(cell.x);
             int otherId = gridHeads[cellIndex];
             uint guard = 0;

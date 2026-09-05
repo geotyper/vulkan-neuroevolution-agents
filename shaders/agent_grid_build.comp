@@ -29,9 +29,9 @@ layout(push_constant) uniform GridParameters {
     float worldRadius;
     float cellSize;
     uint agentCount;
-    uint trialsPerGenome;
+    uint worldCount;
     uint gridWidth;
-    uint gridCellsPerTrial;
+    uint gridCellsPerWorld;
     uint reserved0;
     uint reserved1;
 } params;
@@ -44,8 +44,9 @@ void main() {
     const ivec2 coordinate = clamp(
         ivec2(floor((agents[id].pose.xy + vec2(params.worldRadius)) / params.cellSize)),
         ivec2(0), ivec2(int(params.gridWidth) - 1));
-    const uint trial = id % params.trialsPerGenome;
-    const uint cell = trial * params.gridCellsPerTrial +
+    const uint world = min(uint(max(agents[id].penalties.w, 0.0) + 0.5),
+                           params.worldCount - 1u);
+    const uint cell = world * params.gridCellsPerWorld +
                       uint(coordinate.y) * params.gridWidth + uint(coordinate.x);
     gridNext[id] = atomicExchange(gridHeads[cell], int(id));
 }

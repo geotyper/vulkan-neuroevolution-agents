@@ -14,6 +14,8 @@ are separate targets rather than one application-specific module.
 ## Current experiment
 
 - 512 genomes, each evaluated in four trials (2048 GPU agents);
+- population partitioned into configurable logical groups (12 agents per world
+  by default, with an all-agents mode);
 - 7 forward light receptors with RGB and luminance channels;
 - 8 full-body tactile sectors distinguishing walls from agents;
 - `48 inputs -> 20 tanh neurons -> 6 outputs`;
@@ -32,18 +34,25 @@ are separate targets rather than one application-specific module.
 - average fitness across trials rewards progress and completion in every beacon
   phase and penalizes motor and signal energy use;
 - elitism, tournament selection, uniform crossover, Gaussian mutation;
-- adjustable simulation speed, generation length, physics, and sensor FOV;
+- adjustable simulation speed, generation length, agents per world, physics,
+  and sensor FOV;
 - generation length selectable from 120 to 15000 simulation steps;
 - separate simulation, genetic-algorithm, world, and profiler windows;
 - fitness/arrival history graphs for completed generations;
 - an off-screen Vulkan renderer with persistent circular bodies, heading
   markers, and independently rendered coloured halos.
 
-Four trial populations occupy independent logical worlds even though they are
-drawn in one viewport. A per-trial uniform grid limits collision and light
-queries to nearby agents in the same world. Individual fitness does not yet
-reward helping unrelated genomes, so the communication channel is functional
-but meaningful signalling is not expected until colony fitness is introduced.
+The population is divided into configurable groups, and each group keeps four
+independent trial worlds. With the default group size of 12, 512 genomes occupy
+43 groups and 172 logical worlds. A per-world uniform grid limits collision and
+light queries to nearby agents in the same world. The viewport renders only the
+selected world and can switch between groups and trials. Selecting all 512
+agents produces one group and restores the original interaction density while
+still avoiding the visual overlap of its four trials.
+
+Individual fitness does not yet reward helping unrelated genomes, so the
+communication channel is functional but meaningful signalling is not expected
+until colony fitness is introduced.
 
 The four trials are not four independently trained populations. Every genome
 controls four agents with the same weights but different initial conditions.
@@ -84,7 +93,7 @@ vulkan_neuroevolution_agents (composition root)
   |
   +-- vkneuro_simulation
   |     SimulationModule      ping-pong state + compute orchestration
-  |     agent_grid_*.comp     per-trial spatial acceleration
+  |     agent_grid_*.comp     per-logical-world spatial acceleration
   |     agent_step.comp       RGB sensors + brain + collisions + physics
   |
   +-- vkneuro_visualization
@@ -116,10 +125,12 @@ UI replace its counterpart without changing the application lifecycle.
 both by one complete sensor/network/physics step, reads the SSBO back, and
 compares every float with a small tolerance for both world shapes. A two-agent
 GPU test verifies physical separation, tactile contact, and reception of an
-emitted red signal. Another parity case covers the exact step at which the
-active beacon diagonal changes. Pure CPU tests cover world scaling, beacon
-layouts, channel mapping, weight layout, neural evaluation, elite preservation,
-and reusable compute validation.
+emitted red signal, then verifies that the same colocated agents cannot collide
+or exchange light across a logical-world boundary. Another parity case covers
+the exact step at which the active beacon diagonal changes. Pure CPU tests cover
+world scaling, beacon layouts, logical-world partition mapping, channel
+mapping, weight layout, neural evaluation, elite preservation, and reusable
+compute validation.
 
 ## Build and run
 

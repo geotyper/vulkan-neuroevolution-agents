@@ -35,6 +35,14 @@ struct EvolutionHistory {
     std::size_t maximumSamples{256};
 };
 
+struct SimulationWorlds {
+    std::uint32_t requestedAgentsPerWorld{12};
+    std::uint32_t agentsPerWorld{12};
+    std::uint32_t groupCount{};
+    std::uint32_t worldCount{};
+    std::uint32_t selectedWorld{};
+};
+
 struct AgentBufferView {
     std::array<VkBuffer, 2> buffers{};
     VkDeviceSize size{};
@@ -61,6 +69,7 @@ struct SimulationState {
     SimulationStatistics statistics;
     EvolutionSettings evolution;
     EvolutionHistory history;
+    SimulationWorlds worlds;
     SimulationStep physics;
     AgentBufferView agents;
     SimulationViewport viewport;

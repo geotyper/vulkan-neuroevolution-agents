@@ -31,9 +31,9 @@ layout(push_constant) uniform DrawParameters {
     float beaconMotionTime;
     float beaconTeleportProbability;
     uint beaconMotionSeed;
-    uint reserved1;
-    uint reserved2;
-    uint reserved3;
+    uint selectedWorld;
+    uint agentsPerWorld;
+    uint trialsPerGenome;
 } params;
 
 layout(location = 0) out vec4 color;
@@ -102,7 +102,15 @@ vec2 randomMovingBeaconPosition(uint trial) {
 }
 
 void main() {
-    Agent agent = agents[gl_InstanceIndex];
+    const uint trial = params.selectedWorld % params.trialsPerGenome;
+    const uint group = params.selectedWorld / params.trialsPerGenome;
+    const uint firstGenome = group * params.agentsPerWorld;
+    const uint agentIndex =
+        (firstGenome + gl_InstanceIndex) * params.trialsPerGenome + trial;
+    const uint firstAgentIndex = firstGenome * params.trialsPerGenome + trial;
+    Agent agent = agents[params.mode == 0u || params.mode == 2u || params.mode == 4u
+                             ? agentIndex
+                             : firstAgentIndex];
     vec2 world;
     if (params.mode == 0) {
         world = agent.pose.xy + circleVertex(gl_VertexIndex, agent.pose.w, 16);
@@ -123,7 +131,7 @@ void main() {
                                            vec3(0.55, 1.0, 0.35), vec3(1.0, 0.72, 0.20));
         if (params.beaconScenario == 0) {
             world = agent.target.xy + circleVertex(gl_VertexIndex, 0.060, 16);
-            color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
+            color = vec4(trialColors[trial % 4], params.opacity);
         } else if (params.beaconScenario == 2) {
             const float orbitRadius = params.worldRadius * params.beaconRadiusRatio;
             const float targetLength = length(agent.target.xy);
@@ -134,11 +142,11 @@ void main() {
             const float sine = sin(params.beaconMotionValue);
             world = mat2(cosine, sine, -sine, cosine) * base;
             world += circleVertex(gl_VertexIndex, 0.060, 16);
-            color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
+            color = vec4(trialColors[trial % 4], params.opacity);
         } else if (params.beaconScenario == 3) {
-            world = randomMovingBeaconPosition(gl_InstanceIndex);
+            world = randomMovingBeaconPosition(trial);
             world += circleVertex(gl_VertexIndex, 0.060, 16);
-            color = vec4(trialColors[gl_InstanceIndex % 4], params.opacity);
+            color = vec4(trialColors[trial % 4], params.opacity);
         } else {
             const float offset = params.worldRadius * 0.62;
             if (params.beaconPhase == 0) {

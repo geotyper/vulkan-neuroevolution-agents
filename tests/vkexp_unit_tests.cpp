@@ -156,6 +156,32 @@ void testComputeResourceValidation() {
     check(rejectedUnavailableDescriptorSet, "Unavailable ping-pong descriptor rejection");
 }
 
+void testLogicalWorldPartition() {
+    constexpr std::uint32_t genomes = 25;
+    constexpr std::uint32_t agentsPerWorld = 10;
+    constexpr std::uint32_t trials = 4;
+    check(vkexp::clampAgentsPerWorld(genomes, 0) == vkexp::minimumAgentsPerWorld,
+          "World partition clamps an empty group size");
+    check(vkexp::clampAgentsPerWorld(genomes, 100) == genomes,
+          "World partition supports all agents in one group");
+    check(vkexp::worldGroupCount(genomes, agentsPerWorld) == 3,
+          "World partition rounds up the group count");
+    check(vkexp::logicalWorldCount(genomes, agentsPerWorld, trials) == 12,
+          "World partition creates one world per group and trial");
+    check(vkexp::logicalWorldForAgent(39, agentsPerWorld, trials) == 3,
+          "Last agent in the first group stays in its trial world");
+    check(vkexp::logicalWorldForAgent(40, agentsPerWorld, trials) == 4,
+          "First agent in the second group enters the next set of worlds");
+    check(vkexp::logicalWorldForAgent(98, agentsPerWorld, trials) == 10,
+          "Partial final group maps to the expected trial world");
+    check(vkexp::agentsInLogicalWorld(genomes, agentsPerWorld, trials, 0) == 10,
+          "Full logical world reports its agent count");
+    check(vkexp::agentsInLogicalWorld(genomes, agentsPerWorld, trials, 8) == 5,
+          "Partial logical world reports its agent count");
+    check(vkexp::logicalWorldCount(genomes, genomes, trials) == trials,
+          "All-agent mode preserves only the evaluation trial worlds");
+}
+
 void testPingPongState() {
     vkexp::PingPongBuffer buffers;
     check(buffers.readIndex() == 0 && buffers.writeIndex() == 1, "Initial ping-pong indices");
@@ -307,6 +333,7 @@ int main() {
     testCpuProfiler();
     testDispatchSize();
     testComputeResourceValidation();
+    testLogicalWorldPartition();
     testPingPongState();
     testNeuralNetworkContract();
     testMultimodalSensors();

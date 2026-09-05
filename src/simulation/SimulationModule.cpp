@@ -21,9 +21,9 @@ struct alignas(16) GridBuildParameters {
     float worldRadius{};
     float cellSize{};
     std::uint32_t agentCount{};
-    std::uint32_t trialsPerGenome{};
+    std::uint32_t worldCount{};
     std::uint32_t gridWidth{};
-    std::uint32_t gridCellsPerTrial{};
+    std::uint32_t gridCellsPerWorld{};
     std::uint32_t reserved0{};
     std::uint32_t reserved1{};
 };
@@ -72,14 +72,10 @@ void SimulationModule::createGpuResources(AppContext& context) {
     genomeBuffer_.create(physicalDevice, device,
                          {genomeBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, hostMemory});
 
+    updateWorldLayout();
     updateGridDimensions();
-    const auto maximumGridWidth = static_cast<std::uint32_t>(
-        std::ceil((worldRadiusForSize(WorldSize::Large) * 2.0F) / gridCellSize));
-    const std::uint32_t maximumGridCellsPerTrial = maximumGridWidth * maximumGridWidth;
-    const VkDeviceSize gridHeadBytes =
-        sizeof(std::int32_t) * maximumGridCellsPerTrial * trialsPerGenome;
+    ensureGridCapacity(context);
     const VkDeviceSize gridLinkBytes = sizeof(std::int32_t) * agentCount;
-    gridHeads_.create(physicalDevice, device, {gridHeadBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
     gridNext_.create(physicalDevice, device, {gridLinkBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
 
     createStorageLayout(device, 5, stepDescriptorSetLayout_);
@@ -159,12 +155,19 @@ std::vector<AgentState> SimulationModule::makeInitialAgents() const {
     initialSettings.beaconMotionTime = 0.0F;
     initialSettings.beaconMotionSeed = static_cast<std::uint32_t>(evolution_.generation());
     for (std::size_t genome = 0; genome < genomeCount; ++genome) {
+        const std::size_t group = genome / state_.worlds.agentsPerWorld;
+        const std::size_t firstGenome = group * state_.worlds.agentsPerWorld;
+        const std::size_t agentsInGroup =
+            std::min<std::size_t>(state_.worlds.agentsPerWorld, genomeCount - firstGenome);
+        const std::size_t agentInGroup = genome - firstGenome;
         const float normalizedRadius =
-            std::sqrt((static_cast<float>(genome) + 0.5F) / static_cast<float>(genomeCount));
+            std::sqrt((static_cast<float>(agentInGroup) + 0.5F) /
+                      static_cast<float>(agentsInGroup));
         for (std::size_t trial = 0; trial < trialsPerGenome; ++trial) {
             const std::size_t index = genome * trialsPerGenome + trial;
             const float positionAngle =
-                goldenAngle * static_cast<float>(genome) + static_cast<float>(trial) * 0.43F;
+                goldenAngle * static_cast<float>(agentInGroup) +
+                static_cast<float>(trial) * 0.43F;
             const float spawnRadius = normalizedRadius * state_.physics.worldRadius * 0.70F;
             const float heading =
                 std::fmod(positionAngle * 1.73F + 0.37F, 2.0F * std::numbers::pi_v<float>);
@@ -178,6 +181,9 @@ std::vector<AgentState> SimulationModule::makeInitialAgents() const {
             agent.target = {target.x, target.y, static_cast<float>(trial), 0.0F};
             const float distance = nearestBeaconDistance(agent, initialSettings);
             agent.metrics = {distance, distance, 0.0F, 0.0F};
+            agent.penalties.w = static_cast<float>(logicalWorldForAgent(
+                static_cast<std::uint32_t>(index), state_.worlds.agentsPerWorld,
+                trialsPerGenome));
             result[index] = agent;
         }
     }
@@ -244,7 +250,60 @@ void SimulationModule::finishGeneration() {
 void SimulationModule::updateGridDimensions() {
     gridWidth_ =
         static_cast<std::uint32_t>(std::ceil((state_.physics.worldRadius * 2.0F) / gridCellSize));
-    gridCellsPerTrial_ = gridWidth_ * gridWidth_;
+    gridCellsPerWorld_ = gridWidth_ * gridWidth_;
+}
+
+void SimulationModule::updateWorldLayout() {
+    const auto genomeCount = static_cast<std::uint32_t>(evolution_.population().size());
+    state_.worlds.agentsPerWorld =
+        clampAgentsPerWorld(genomeCount, state_.worlds.requestedAgentsPerWorld);
+    state_.worlds.requestedAgentsPerWorld = state_.worlds.agentsPerWorld;
+    state_.worlds.groupCount = worldGroupCount(genomeCount, state_.worlds.agentsPerWorld);
+    state_.worlds.worldCount =
+        logicalWorldCount(genomeCount, state_.worlds.agentsPerWorld, trialsPerGenome);
+    if (state_.worlds.worldCount == 0) {
+        state_.worlds.selectedWorld = 0;
+    } else {
+        state_.worlds.selectedWorld =
+            std::min(state_.worlds.selectedWorld, state_.worlds.worldCount - 1);
+    }
+}
+
+void SimulationModule::ensureGridCapacity(AppContext& context) {
+    const auto maximumGridWidth = static_cast<std::uint32_t>(
+        std::ceil((worldRadiusForSize(WorldSize::Large) * 2.0F) / gridCellSize));
+    const VkDeviceSize requiredBytes = sizeof(std::int32_t) * maximumGridWidth * maximumGridWidth *
+                                       state_.worlds.worldCount;
+    if (gridHeads_.size() >= requiredBytes) {
+        return;
+    }
+    gridHeads_.reset();
+    gridHeads_.create(context.vulkan.physicalDevice(), context.vulkan.device(),
+                      {requiredBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
+    updateGridDescriptors(context.vulkan.device());
+}
+
+void SimulationModule::updateGridDescriptors(const VkDevice device) {
+    if (gridClearDescriptorSet_ != VK_NULL_HANDLE) {
+        DescriptorSetWriter{}
+            .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridHeads_.buffer(), 0,
+                         gridHeads_.size())
+            .update(device, gridClearDescriptorSet_);
+    }
+    for (std::size_t index = 0; index < stepDescriptorSets_.size(); ++index) {
+        if (stepDescriptorSets_[index] != VK_NULL_HANDLE) {
+            DescriptorSetWriter{}
+                .writeBuffer(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridHeads_.buffer(), 0,
+                             gridHeads_.size())
+                .update(device, stepDescriptorSets_[index]);
+        }
+        if (gridBuildDescriptorSets_[index] != VK_NULL_HANDLE) {
+            DescriptorSetWriter{}
+                .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridHeads_.buffer(), 0,
+                             gridHeads_.size())
+                .update(device, gridBuildDescriptorSets_[index]);
+        }
+    }
 }
 
 GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generationStep) const {
@@ -279,7 +338,7 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
             trialsPerGenome,
             static_cast<std::uint32_t>(state_.physics.worldShape),
             gridWidth_,
-            gridCellsPerTrial_,
+            gridCellsPerWorld_,
             state_.physics.agentCollisionsEnabled ? 1U : 0U,
             state_.physics.agentLightEnabled ? 1U : 0U,
             static_cast<std::uint32_t>(state_.physics.beaconScenario),
@@ -301,6 +360,8 @@ void SimulationModule::onUpdate(AppContext& context, const FrameInfo&) {
         state_.history.medianFitness.clear();
         state_.history.meanFitness.clear();
         state_.history.arrivalRatio.clear();
+        updateWorldLayout();
+        ensureGridCapacity(context);
         updateGridDimensions();
         resetGeneration();
         state_.controls.resetRequested = false;
@@ -342,12 +403,12 @@ void SimulationModule::onRender(AppContext& context, const FrameInfo&) {
     const GridBuildParameters gridParameters{state_.physics.worldRadius,
                                              gridCellSize,
                                              state_.agents.agentCount,
-                                             trialsPerGenome,
+                                             state_.worlds.worldCount,
                                              gridWidth_,
-                                             gridCellsPerTrial_,
+                                             gridCellsPerWorld_,
                                              0,
                                              0};
-    const std::uint32_t totalGridCells = gridCellsPerTrial_ * trialsPerGenome;
+    const std::uint32_t totalGridCells = gridCellsPerWorld_ * state_.worlds.worldCount;
     const std::array<VkDeviceSize, 1> clearRanges{gridHeads_.size()};
     const DispatchSize gridGroups = checkedDispatchSize(
         context.vulkan.physicalDevice(),
