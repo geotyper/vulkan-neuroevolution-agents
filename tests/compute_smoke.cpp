@@ -165,6 +165,12 @@ void runNeuralStepParity(
     } else if (beaconScenario == vkexp::BeaconScenario::RandomMovement) {
         settings.beaconMotionTime = 4.2F;
         settings.beaconMotionSeed = 73U;
+    } else if (beaconScenario == vkexp::BeaconScenario::ForageHome) {
+        settings.beaconRotationAngle = 0.73F;
+        initial.internal = {0.8F, 1.0F, 0.2F, -0.3F};
+        const vkexp::Float4 home = vkexp::homeBeaconPosition(initial, settings.worldRadius);
+        initial.pose.x = home.x;
+        initial.pose.y = home.y;
     }
     vkexp::SimulationStep initialSettings = settings;
     initialSettings.beaconPhase = 0;
@@ -297,7 +303,9 @@ void runNeuralStepParity(
             : settings.beaconRotationAngle,
         settings.beaconRadiusRatio,
         settings.beaconMotionTime,
-        settings.beaconTeleportProbability,
+        settings.beaconScenario == vkexp::BeaconScenario::ForageHome
+            ? settings.forageCargoDecayRate
+            : settings.beaconTeleportProbability,
         settings.beaconMotionSeed};
     context.immediate().execute([&](const VkCommandBuffer commands) {
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
@@ -455,7 +463,9 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool 
             : settings.beaconRotationAngle,
         settings.beaconRadiusRatio,
         settings.beaconMotionTime,
-        settings.beaconTeleportProbability,
+        settings.beaconScenario == vkexp::BeaconScenario::ForageHome
+            ? settings.forageCargoDecayRate
+            : settings.beaconTeleportProbability,
         settings.beaconMotionSeed};
     context.immediate().execute([&](const VkCommandBuffer commands) {
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline());
@@ -504,6 +514,7 @@ int run() {
                         vkexp::BeaconScenario::AlternatingDiagonals);
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::Rotating);
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::RandomMovement);
+    runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::ForageHome);
     runAgentInteractionTest(context, false);
     runAgentInteractionTest(context, true);
     std::cout << "Headless compute and CPU/GPU neural parity tests passed on "

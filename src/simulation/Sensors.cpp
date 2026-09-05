@@ -86,6 +86,10 @@ neuro::Inputs sampleAgentInputs(const AgentState& agent, const SimulationStep& s
     inputs[selfOffset + 1] = std::clamp(agent.motion.z / settings.maximumAngularSpeed, -1.0F, 1.0F);
     inputs[selfOffset + 2] = std::clamp(agent.motion.w, 0.0F, 1.0F);
     inputs[selfOffset + 3] = std::clamp(agent.signal.w, 0.0F, 1.0F);
+    inputs[selfOffset + 4] = std::clamp(agent.internal.x, 0.0F, 1.0F);
+    inputs[selfOffset + 5] = std::clamp(agent.internal.y, 0.0F, 1.0F);
+    inputs[selfOffset + 6] = std::clamp(agent.internal.z, -1.0F, 1.0F);
+    inputs[selfOffset + 7] = std::clamp(agent.internal.w, -1.0F, 1.0F);
     return inputs;
 }
 

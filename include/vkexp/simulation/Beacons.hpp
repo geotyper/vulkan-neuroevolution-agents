@@ -19,9 +19,11 @@ struct ActiveBeacons {
 };
 
 [[nodiscard]] Float4 stationaryBeaconPosition(std::uint32_t trial, float worldRadius);
+[[nodiscard]] Float4 homeBeaconPosition(const AgentState& agent, float worldRadius);
 [[nodiscard]] ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& settings);
 [[nodiscard]] float nearestBeaconDistance(const AgentState& agent, const SimulationStep& settings);
 [[nodiscard]] std::uint32_t completedBeaconPhases(const AgentState& agent);
+[[nodiscard]] std::uint32_t completedForageCycles(const AgentState& agent);
 [[nodiscard]] std::uint32_t beaconPhaseForStep(BeaconScenario scenario, std::uint32_t step,
                                                std::uint32_t stepsPerGeneration);
 [[nodiscard]] float beaconRotationAngleForStep(float angularSpeed, float deltaTime,

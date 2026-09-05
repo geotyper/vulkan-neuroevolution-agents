@@ -18,14 +18,16 @@ are separate targets rather than one application-specific module.
   by default, with an all-agents mode);
 - 7 forward light receptors with RGB and luminance channels;
 - 8 full-body tactile sectors distinguishing walls from agents;
-- `48 inputs -> 20 tanh neurons -> 6 outputs`;
-- outputs control left/right motors, RGB emission, and emission intensity;
+- `52 inputs -> 20 tanh neurons -> 8 outputs`;
+- outputs control left/right motors, RGB emission, emission intensity, and two
+  recurrent memory cells;
 - inertial movement with linear/angular drag and hard linear/angular speed
   limits;
 - selectable circular or square world in small (x1), medium (x1.5), and large
   (x3) sizes;
 - stationary per-trial beacons, alternating diagonal pairs, orbiting beacons,
-  or deterministic random movement with occasional teleportation;
+  deterministic random movement with occasional teleportation, or an
+  orbiting-resource/static-home foraging cycle;
 - circle-circle agent collisions with impulse response and tactile pressure;
 - configurable accumulated fitness penalty for hitting or pushing against the
   world boundary;
@@ -69,6 +71,7 @@ only work from one spawn position or heading.
 | Beacon scenario | Alternating diagonals | Two beacons occupy one diagonal during the first half of a generation, then two beacons occupy the opposite diagonal. |
 | Beacon scenario | Rotating | One beacon per trial continuously orbits the world centre; speed and direction are adjustable from -90 to +90 degrees per second. |
 | Beacon scenario | Random movement | Each trial follows a smooth bounded wandering path with adjustable speed and a configurable teleport chance checked every three seconds. |
+| Beacon scenario | Forage + home | Agents collect an orange orbiting resource, then carry its decaying value to a stationary blue home before seeking the resource again. |
 
 Changing the world size, shape, or beacon scenario resets the evolution because
 fitness values gathered in different environments are not directly comparable.
@@ -78,6 +81,15 @@ of the generation. The moving scenarios additionally reward sustained visible
 closeness, so following the target scores better than a chance encounter.
 Rotating and random scenarios expose an orbit/roaming-radius control; the
 default random teleport probability is 25%.
+
+The foraging scenario does not grant passive tracking fitness. Reaching the
+resource switches an explicit task input from `seek resource` to `seek home`
+and fills a cargo-level input. Cargo decays while being carried, so prompt home
+delivery is worth more; delivery completes a cycle and switches the task back.
+Fitness remains cumulative—the expiring cargo is the decreasing reward
+potential—so long generations do not erase already completed work. Two separate
+learned memory values are fed back as inputs on the next simulation step and
+updated by the final two network outputs.
 
 ## Architecture
 
@@ -110,8 +122,8 @@ The shared contracts are small:
 
 - `SimulationState` carries controls, statistics, the published agent-buffer
   view, and the published viewport image;
-- `AgentState` is an explicitly checked 160-byte std430-compatible structure;
-- `Topology` defines one flattened 1106-float weight layout used identically by
+- `AgentState` is an explicitly checked 176-byte std430-compatible structure;
+- `Topology` defines one flattened 1228-float weight layout used identically by
   the CPU evaluator and GLSL shader;
 - module order in `main.cpp` is the composition graph: compute publishes the
   buffer, rendering reads it, and ImGui composites the viewport.
@@ -159,7 +171,7 @@ Vulkan test. The latter returns CTest's skip code when no compute device exists.
 The next world feature should enter through a focused contract:
 
 - walls and occlusion extend sensor/world queries;
-- recurrent state extends `AgentState` and the brain contract;
+- richer recurrent cells or gated memory can extend the two-value recurrent state;
 - internal walls and occlusion extend grid-backed world queries;
 - colony scoring replaces fitness aggregation without changing physics;
 - a different topology can become another evaluator/shader pair;

@@ -9,6 +9,9 @@
 namespace vkexp {
 namespace {
 
+constexpr float foragePickupReward = 0.25F;
+constexpr float forageDeliveryReward = 4.0F;
+
 void setComponent(Float4& value, const std::size_t index, const float contact) {
     float* components[] = {&value.x, &value.y, &value.z, &value.w};
     *components[index] = std::max(*components[index], contact);
@@ -121,10 +124,34 @@ void stepAgentCpu(AgentState& agent,
     agent.motion.w = std::max(0.0F, agent.motion.w - motorCost * 0.0008F - signalCost * 0.0008F);
     agent.signal = {output[2] * 0.5F + 0.5F, output[3] * 0.5F + 0.5F, output[4] * 0.5F + 0.5F,
                     signalIntensity};
+    agent.internal.z = output[6];
+    agent.internal.w = output[7];
 
     const float distance = nearestBeaconDistance(agent, settings);
     agent.metrics.y = std::min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;
+    if (settings.beaconScenario == BeaconScenario::ForageHome) {
+        if (agent.internal.y >= 0.5F) {
+            agent.internal.x = std::max(
+                0.0F, agent.internal.x - settings.forageCargoDecayRate * settings.deltaTime);
+        }
+        if (distance < settings.arrivalRadius) {
+            agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
+            if (agent.internal.y >= 0.5F) {
+                agent.metrics.w += agent.internal.x * forageDeliveryReward;
+                agent.target.w = static_cast<float>(completedForageCycles(agent) + 1);
+                agent.internal.x = 0.0F;
+                agent.internal.y = 0.0F;
+            } else {
+                agent.metrics.w += foragePickupReward;
+                agent.internal.x = 1.0F;
+                agent.internal.y = 1.0F;
+            }
+            agent.metrics.x = nearestBeaconDistance(agent, settings);
+            agent.metrics.y = agent.metrics.x;
+        }
+        return;
+    }
     if (settings.beaconScenario == BeaconScenario::Rotating ||
         settings.beaconScenario == BeaconScenario::RandomMovement) {
         const float visibleCloseness =
@@ -139,9 +166,12 @@ void stepAgentCpu(AgentState& agent,
     }
 }
 
-float agentFitness(const AgentState& agent) {
+float agentFitness(const AgentState& agent, const BeaconScenario scenario) {
+    const std::uint32_t completedObjectives = scenario == BeaconScenario::ForageHome
+                                                  ? completedForageCycles(agent)
+                                                  : completedBeaconPhases(agent);
     return agent.metrics.w + (agent.metrics.x - agent.metrics.y) +
-           static_cast<float>(completedBeaconPhases(agent)) * 2.0F - agent.metrics.z * 0.002F -
+           static_cast<float>(completedObjectives) * 2.0F - agent.metrics.z * 0.002F -
            agent.penalties.x;
 }
 

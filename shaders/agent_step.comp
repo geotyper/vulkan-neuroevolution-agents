@@ -6,10 +6,13 @@ const uint LightReceptorCount = 7;
 const uint LightChannels = 4;
 const uint TactileSectorCount = 8;
 const uint TactileChannels = 2;
-const uint InputCount = 48;
+const uint InputCount = 52;
 const uint HiddenCount = 20;
-const uint OutputCount = 6;
+const uint OutputCount = 8;
 const float Tau = 6.28318530718;
+const float ForagePickupReward = 0.25;
+const float ForageDeliveryReward = 4.0;
+const float HomeRadiusRatio = 0.58;
 
 struct Agent {
     vec4 pose;
@@ -18,6 +21,7 @@ struct Agent {
     vec4 target;
     vec4 metrics;
     vec4 penalties;
+    vec4 internal;
     vec4 wallTouch0;
     vec4 wallTouch1;
     vec4 agentTouch0;
@@ -71,7 +75,7 @@ layout(push_constant) uniform StepParameters {
     float beaconMotionValue;
     float beaconRadiusRatio;
     float beaconMotionTime;
-    float beaconTeleportProbability;
+    float scenarioRate;
     uint beaconMotionSeed;
 } params;
 
@@ -95,12 +99,12 @@ float random01(uint value) {
 }
 
 bool isTeleportSegment(uint segment, uint trial) {
-    if (segment == 0u || params.beaconTeleportProbability <= 0.0) {
+    if (segment == 0u || params.scenarioRate <= 0.0) {
         return false;
     }
     const uint eventKey = params.beaconMotionSeed ^ (trial * 0x27d4eb2du) ^
                           (segment * 0x165667b1u) ^ 0xa511e9b3u;
-    return random01(eventKey) < params.beaconTeleportProbability;
+    return random01(eventKey) < params.scenarioRate;
 }
 
 vec2 randomMovingBeaconPosition(uint trial) {
@@ -133,14 +137,20 @@ vec2 randomMovingBeaconPosition(uint trial) {
 }
 
 uint activeBeaconCount() {
-    return params.beaconScenario == 1 ? 2 : 1;
+    return params.beaconScenario == 1 || params.beaconScenario == 4 ? 2 : 1;
 }
 
 vec2 activeBeaconPosition(Agent agent, uint beaconIndex) {
     if (params.beaconScenario == 0) {
         return agent.target.xy;
     }
-    if (params.beaconScenario == 2) {
+    if (params.beaconScenario == 2 || params.beaconScenario == 4) {
+        if (params.beaconScenario == 4 && beaconIndex == 1) {
+            const float targetLength = length(agent.target.xy);
+            return targetLength > 0.000001
+                       ? -agent.target.xy / targetLength * params.worldRadius * HomeRadiusRatio
+                       : vec2(-params.worldRadius * HomeRadiusRatio, 0.0);
+        }
         const float orbitRadius = params.worldRadius * params.beaconRadiusRatio;
         const float targetLength = length(agent.target.xy);
         const vec2 base = targetLength > 0.000001
@@ -161,6 +171,9 @@ vec2 activeBeaconPosition(Agent agent, uint beaconIndex) {
 }
 
 vec3 activeBeaconColor(uint beaconIndex, uint trial) {
+    if (params.beaconScenario == 4) {
+        return beaconIndex == 0 ? vec3(1.00, 0.55, 0.08) : vec3(0.12, 0.72, 1.00);
+    }
     if (params.beaconScenario != 1) {
         return paletteColor(trial);
     }
@@ -168,6 +181,10 @@ vec3 activeBeaconColor(uint beaconIndex, uint trial) {
 }
 
 float nearestBeaconDistance(Agent agent, vec2 position) {
+    if (params.beaconScenario == 4) {
+        const uint targetIndex = agent.internal.y >= 0.5 ? 1u : 0u;
+        return length(activeBeaconPosition(agent, targetIndex) - position);
+    }
     float nearest = params.worldRadius * 4.0;
     for (uint beaconIndex = 0; beaconIndex < activeBeaconCount(); ++beaconIndex) {
         nearest = min(nearest, length(activeBeaconPosition(agent, beaconIndex) - position));
@@ -349,6 +366,10 @@ void main() {
         clamp(agent.motion.z / params.maximumAngularSpeed, -1.0, 1.0);
     inputs[selfOffset + 2] = clamp(agent.motion.w, 0.0, 1.0);
     inputs[selfOffset + 3] = clamp(agent.signal.w, 0.0, 1.0);
+    inputs[selfOffset + 4] = clamp(agent.internal.x, 0.0, 1.0);
+    inputs[selfOffset + 5] = clamp(agent.internal.y, 0.0, 1.0);
+    inputs[selfOffset + 6] = clamp(agent.internal.z, -1.0, 1.0);
+    inputs[selfOffset + 7] = clamp(agent.internal.w, -1.0, 1.0);
 
     const uint genome = id / params.trialsPerGenome;
     const uint base = genome * params.weightsPerGenome;
@@ -441,9 +462,33 @@ void main() {
     agent.motion.w = max(0.0, agent.motion.w - motorCost * 0.0008 - signalCost * 0.0008);
     agent.signal = vec4(outputs[2] * 0.5 + 0.5, outputs[3] * 0.5 + 0.5,
                         outputs[4] * 0.5 + 0.5, signalIntensity);
+    agent.internal.z = outputs[6];
+    agent.internal.w = outputs[7];
     const float distance = nearestBeaconDistance(agent, agent.pose.xy);
     agent.metrics.y = min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;
+    if (params.beaconScenario == 4) {
+        if (agent.internal.y >= 0.5) {
+            agent.internal.x = max(0.0, agent.internal.x - params.scenarioRate * params.deltaTime);
+        }
+        if (distance < params.arrivalRadius) {
+            agent.metrics.w += max(agent.metrics.x - agent.metrics.y, 0.0);
+            if (agent.internal.y >= 0.5) {
+                agent.metrics.w += agent.internal.x * ForageDeliveryReward;
+                agent.target.w = floor(max(agent.target.w, 0.0) + 0.5) + 1.0;
+                agent.internal.x = 0.0;
+                agent.internal.y = 0.0;
+            } else {
+                agent.metrics.w += ForagePickupReward;
+                agent.internal.x = 1.0;
+                agent.internal.y = 1.0;
+            }
+            agent.metrics.x = nearestBeaconDistance(agent, agent.pose.xy);
+            agent.metrics.y = agent.metrics.x;
+        }
+        outputAgents[id] = agent;
+        return;
+    }
     if (params.beaconScenario == 2 || params.beaconScenario == 3) {
         const float visibleCloseness = clamp(1.0 - distance / params.lightSensorRange, 0.0, 1.0);
         agent.metrics.w += visibleCloseness * params.deltaTime * 0.25;

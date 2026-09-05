@@ -75,9 +75,9 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [x] rotating beacon scenario with adjustable angular speed;
 - [x] deterministic random beacon paths with configurable teleport chance;
 - [x] discrete small, medium, and large training arenas;
-- [ ] recurrent/internal state with explicit reset semantics;
-- [ ] energy pickup and nest delivery;
-- [ ] outbound/return behavior fitness;
+- [x] recurrent/internal state with explicit reset semantics;
+- [x] energy pickup and nest delivery;
+- [x] outbound/return behavior fitness;
 - [ ] ablation mode comparing reactive and recurrent brains.
 
 ### 5. Emergent communication

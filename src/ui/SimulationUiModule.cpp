@@ -110,17 +110,18 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Text("World span: %.2f", state_.physics.worldRadius * 2.0F);
     int beaconScenario = static_cast<int>(state_.physics.beaconScenario);
     constexpr const char* beaconScenarios[] = {"Stationary", "Alternating diagonals", "Rotating",
-                                               "Random movement"};
-    if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios, 4)) {
+                                               "Random movement", "Forage + home"};
+    if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios, 5)) {
         state_.physics.beaconScenario = static_cast<BeaconScenario>(beaconScenario);
         state_.controls.resetRequested = true;
     }
     if (state_.physics.beaconScenario == BeaconScenario::Rotating ||
-        state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
+        state_.physics.beaconScenario == BeaconScenario::RandomMovement ||
+        state_.physics.beaconScenario == BeaconScenario::ForageHome) {
         float beaconRadius = state_.physics.beaconRadiusRatio * state_.physics.worldRadius;
-        const char* radiusLabel = state_.physics.beaconScenario == BeaconScenario::Rotating
-                                      ? "Orbit radius"
-                                      : "Roam radius";
+        const char* radiusLabel = state_.physics.beaconScenario == BeaconScenario::RandomMovement
+                                      ? "Roam radius"
+                                      : "Orbit radius";
         if (ImGui::SliderFloat(radiusLabel, &beaconRadius, state_.physics.worldRadius * 0.10F,
                                state_.physics.worldRadius * 0.90F, "%.2f")) {
             state_.physics.beaconRadiusRatio = beaconRadius / state_.physics.worldRadius;
@@ -131,7 +132,8 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         const std::uint32_t phase =
             state_.statistics.step >= state_.controls.stepsPerGeneration / 2 ? 2U : 1U;
         ImGui::TextDisabled("Active diagonal: %u / 2", phase);
-    } else if (state_.physics.beaconScenario == BeaconScenario::Rotating) {
+    } else if (state_.physics.beaconScenario == BeaconScenario::Rotating ||
+               state_.physics.beaconScenario == BeaconScenario::ForageHome) {
         if (ImGui::SliderAngle("Rotation speed", &state_.physics.beaconAngularSpeed, -90.0F, 90.0F,
                                "%.1f deg/s")) {
             state_.controls.resetRequested = true;
@@ -140,6 +142,13 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
             constexpr float tau = 6.28318530718F;
             ImGui::TextDisabled("Orbit period: %.1f s",
                                 tau / std::abs(state_.physics.beaconAngularSpeed));
+        }
+        if (state_.physics.beaconScenario == BeaconScenario::ForageHome) {
+            if (ImGui::SliderFloat("Cargo decay / second", &state_.physics.forageCargoDecayRate,
+                                   0.0F, 0.25F, "%.3f")) {
+                state_.controls.resetRequested = true;
+            }
+            ImGui::TextDisabled("Orange resource -> blue home -> repeat");
         }
     } else if (state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
         if (ImGui::SliderFloat("Wander speed", &state_.physics.beaconRandomSpeed, 0.0F, 0.75F,
@@ -174,8 +183,8 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SeparatorText("Brain contract");
     ImGui::Text("%zu inputs -> %zu tanh -> %zu outputs", neuro::Topology::inputCount,
                 neuro::Topology::hiddenCount, neuro::Topology::outputCount);
-    ImGui::TextDisabled("7 x RGB+luminance, 8 x wall+agent touch, 4 self");
-    ImGui::TextDisabled("outputs: left/right motor, RGB, light intensity");
+    ImGui::TextDisabled("light, touch, 4 self, cargo/task, 2 memory");
+    ImGui::TextDisabled("motors, RGB/light intensity, 2 memory updates");
     ImGui::End();
 
     ImGui::SetNextWindowPos(ImVec2(16.0F, 500.0F), ImGuiCond_FirstUseEver);
@@ -190,7 +199,11 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Text("Best fitness:   %.4f", state_.statistics.bestFitness);
     ImGui::Text("Median fitness: %.4f", state_.statistics.medianFitness);
     ImGui::Text("Mean fitness:   %.4f", state_.statistics.meanFitness);
-    ImGui::Text("Beacon objectives: %.1f%%", state_.statistics.arrivalRatio * 100.0F);
+    if (state_.physics.beaconScenario == BeaconScenario::ForageHome) {
+        ImGui::Text("Completed a forage cycle: %.1f%%", state_.statistics.arrivalRatio * 100.0F);
+    } else {
+        ImGui::Text("Beacon objectives: %.1f%%", state_.statistics.arrivalRatio * 100.0F);
+    }
     ImGui::SeparatorText("Fitness history");
     plotHistory("Best", state_.history.bestFitness);
     plotHistory("Median", state_.history.medianFitness);

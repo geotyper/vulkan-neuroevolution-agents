@@ -199,8 +199,9 @@ void testNeuralNetworkContract() {
     for (const float output : outputs) {
         check(closeTo(output, 0.0F), "Zero neural network output");
     }
-    check(vkexp::neuro::Topology::inputCount == 48, "Multimodal neural input count");
-    check(vkexp::neuro::Topology::weightCount == 1106, "Stable flattened neural weight count");
+    check(vkexp::neuro::Topology::inputCount == 52, "Multimodal neural input count");
+    check(vkexp::neuro::Topology::outputCount == 8, "Actuator and memory output count");
+    check(vkexp::neuro::Topology::weightCount == 1228, "Stable flattened neural weight count");
 }
 
 void testMultimodalSensors() {
@@ -208,6 +209,7 @@ void testMultimodalSensors() {
     agent.pose = {0.0F, 0.0F, 0.0F, 0.022F};
     agent.motion.w = 1.0F;
     agent.target = {1.0F, 0.0F, 0.0F, 0.0F};
+    agent.internal = {0.7F, 1.0F, -0.4F, 0.6F};
     agent.wallTouch0.x = 0.7F;
     agent.agentTouch1.w = 0.8F;
     const vkexp::SimulationStep settings{};
@@ -220,6 +222,13 @@ void testMultimodalSensors() {
                                     vkexp::neuro::Topology::lightChannelsPerReceptor;
     check(closeTo(inputs[tactile], 0.7F), "Wall tactile sector mapping");
     check(closeTo(inputs[tactile + 7 * 2 + 1], 0.8F), "Agent tactile sector mapping");
+    constexpr std::size_t task = tactile + vkexp::neuro::Topology::tactileSectorCount *
+                                               vkexp::neuro::Topology::tactileChannelsPerSector +
+                                 vkexp::neuro::Topology::selfInputCount;
+    check(closeTo(inputs[task], 0.7F) && closeTo(inputs[task + 1], 1.0F),
+          "Cargo and task-state input mapping");
+    check(closeTo(inputs[task + 2], -0.4F) && closeTo(inputs[task + 3], 0.6F),
+          "Recurrent memory input mapping");
 }
 
 void testWorldAndBeaconScenarios() {
@@ -288,6 +297,62 @@ void testWorldAndBeaconScenarios() {
     check(!closeTo(randomStart.values[0].position.x, randomMiddle.values[0].position.x) ||
               !closeTo(randomStart.values[0].position.y, randomMiddle.values[0].position.y),
           "Random beacon moves between deterministic waypoints");
+
+    settings.beaconScenario = vkexp::BeaconScenario::ForageHome;
+    settings.beaconRotationAngle = 0.0F;
+    const vkexp::ActiveBeacons forage = vkexp::activeBeacons(agent, settings);
+    check(forage.count == 2 && forage.values[0].color.x > forage.values[0].color.z &&
+              forage.values[1].color.z > forage.values[1].color.x,
+          "Forage scenario exposes orange resource and blue home beacons");
+    agent.pose = forage.values[0].position;
+    agent.internal.y = 0.0F;
+    check(closeTo(vkexp::nearestBeaconDistance(agent, settings), 0.0F),
+          "Forage task targets the resource while empty");
+    agent.pose = forage.values[1].position;
+    agent.internal.y = 1.0F;
+    check(closeTo(vkexp::nearestBeaconDistance(agent, settings), 0.0F),
+          "Forage task targets home while carrying cargo");
+}
+
+void testForageCycleAndMemory() {
+    vkexp::AgentState agent{};
+    agent.pose.w = 0.022F;
+    agent.motion.w = 1.0F;
+    agent.target = {1.0F, 0.0F, 0.0F, 0.0F};
+    vkexp::SimulationStep settings{};
+    settings.beaconScenario = vkexp::BeaconScenario::ForageHome;
+    settings.beaconRotationAngle = 0.0F;
+    const vkexp::ActiveBeacons beacons = vkexp::activeBeacons(agent, settings);
+    agent.pose.x = beacons.values[0].position.x;
+    agent.pose.y = beacons.values[0].position.y;
+    agent.metrics = {};
+
+    vkexp::neuro::Weights weights{};
+    constexpr std::size_t outputBias =
+        vkexp::neuro::Topology::inputCount * vkexp::neuro::Topology::hiddenCount +
+        vkexp::neuro::Topology::hiddenCount +
+        vkexp::neuro::Topology::hiddenCount * vkexp::neuro::Topology::outputCount;
+    weights[outputBias + 6] = 0.5F;
+    weights[outputBias + 7] = -0.75F;
+
+    vkexp::stepAgentCpu(agent, weights, settings);
+    check(closeTo(agent.internal.x, 1.0F) && closeTo(agent.internal.y, 1.0F),
+          "Resource pickup fills cargo and switches the task to home");
+    check(closeTo(agent.internal.z, std::tanh(0.5F)) &&
+              closeTo(agent.internal.w, std::tanh(-0.75F)),
+          "Neural memory outputs persist in agent state");
+
+    agent.pose.x = beacons.values[1].position.x;
+    agent.pose.y = beacons.values[1].position.y;
+    agent.motion.x = 0.0F;
+    agent.motion.y = 0.0F;
+    vkexp::stepAgentCpu(agent, weights, settings);
+    check(closeTo(agent.internal.x, 0.0F) && closeTo(agent.internal.y, 0.0F),
+          "Home delivery empties cargo and switches the task back to resource");
+    check(vkexp::completedForageCycles(agent) == 1,
+          "Home delivery completes one forage cycle");
+    check(vkexp::agentFitness(agent, settings.beaconScenario) > 2.0F,
+          "Completed forage cycle produces positive fitness");
 }
 
 void testWallCollisionPenalty() {
@@ -338,6 +403,7 @@ int main() {
     testNeuralNetworkContract();
     testMultimodalSensors();
     testWorldAndBeaconScenarios();
+    testForageCycleAndMemory();
     testWallCollisionPenalty();
     testGeneticAlgorithm();
     return failures == 0 ? 0 : 1;

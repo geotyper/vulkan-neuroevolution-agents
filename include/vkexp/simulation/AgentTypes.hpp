@@ -1,7 +1,7 @@
 #pragma once
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -24,6 +24,7 @@ enum class BeaconScenario : std::uint32_t {
     AlternatingDiagonals = 1,
     Rotating = 2,
     RandomMovement = 3,
+    ForageHome = 4,
 };
 
 inline constexpr float smallWorldRadius = 1.84F;
@@ -98,9 +99,10 @@ struct alignas(16) AgentState {
     Float4 pose;        // position.xy, angle, circular collision radius
     Float4 motion;      // velocity.xy, angular velocity, normalized energy
     Float4 signal;      // emitted RGB and intensity
-    Float4 target;      // stationary beacon.xy, trial id, completed-phase bit mask
+    Float4 target;      // base beacon.xy, trial id, completed mask or forage-cycle count
     Float4 metrics;     // phase start/min distance, motor cost, completed-phase progress
     Float4 penalties;   // wall/agent/hazard penalties and logical world id
+    Float4 internal;    // cargo level, seeking-home flag, and two recurrent memory cells
     Float4 wallTouch0;  // wall contact sectors 0..3
     Float4 wallTouch1;  // wall contact sectors 4..7
     Float4 agentTouch0; // agent contact sectors 0..3
@@ -108,10 +110,11 @@ struct alignas(16) AgentState {
 };
 
 static_assert(std::is_trivially_copyable_v<AgentState>);
-static_assert(sizeof(AgentState) == 160);
+static_assert(sizeof(AgentState) == 176);
 static_assert(offsetof(AgentState, metrics) == 64);
 static_assert(offsetof(AgentState, penalties) == 80);
-static_assert(offsetof(AgentState, wallTouch0) == 96);
+static_assert(offsetof(AgentState, internal) == 96);
+static_assert(offsetof(AgentState, wallTouch0) == 112);
 
 struct SimulationStep {
     float deltaTime{1.0F / 60.0F};
@@ -135,6 +138,7 @@ struct SimulationStep {
     float beaconMotionTime{};
     float beaconTeleportProbability{0.25F};
     float beaconRandomSpeed{0.18F};
+    float forageCargoDecayRate{0.08F};
     std::uint32_t beaconMotionSeed{};
     WorldShape worldShape{WorldShape::Circle};
     WorldSize worldSize{WorldSize::Small};
@@ -176,7 +180,7 @@ struct alignas(16) GpuStepParameters {
     float beaconMotionValue{}; // rotation angle or random-wander speed
     float beaconRadiusRatio{};
     float beaconMotionTime{};
-    float beaconTeleportProbability{};
+    float scenarioRate{}; // random teleport probability or forage cargo decay rate
     std::uint32_t beaconMotionSeed{};
 };
 

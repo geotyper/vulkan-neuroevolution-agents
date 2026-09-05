@@ -12,11 +12,15 @@ struct Topology {
     static constexpr std::size_t tactileSectorCount = 8;
     static constexpr std::size_t tactileChannelsPerSector = 2; // wall + agent
     static constexpr std::size_t selfInputCount = 4;
+    static constexpr std::size_t taskInputCount = 2; // cargo level + seeking-home state
+    static constexpr std::size_t recurrentMemoryCount = 2;
     static constexpr std::size_t inputCount = lightReceptorCount * lightChannelsPerReceptor +
                                               tactileSectorCount * tactileChannelsPerSector +
-                                              selfInputCount;
+                                              selfInputCount + taskInputCount +
+                                              recurrentMemoryCount;
     static constexpr std::size_t hiddenCount = 20;
-    static constexpr std::size_t outputCount = 6;
+    static constexpr std::size_t actuatorOutputCount = 6;
+    static constexpr std::size_t outputCount = actuatorOutputCount + recurrentMemoryCount;
     static constexpr std::size_t weightCount =
         inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + outputCount;
 };

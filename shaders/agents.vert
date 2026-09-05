@@ -7,6 +7,7 @@ struct Agent {
     vec4 target;
     vec4 metrics;
     vec4 penalties;
+    vec4 internal;
     vec4 wallTouch0;
     vec4 wallTouch1;
     vec4 agentTouch0;
@@ -39,6 +40,7 @@ layout(push_constant) uniform DrawParameters {
 layout(location = 0) out vec4 color;
 
 const float Tau = 6.28318530718;
+const float HomeRadiusRatio = 0.58;
 
 vec2 circleVertex(uint vertex, float radius, uint segmentCount) {
     const uint corner = vertex % 3;
@@ -123,6 +125,10 @@ void main() {
                                        max(max(agent.agentTouch1.x, agent.agentTouch1.y),
                                            max(agent.agentTouch1.z, agent.agentTouch1.w)));
         vec3 bodyColor = mix(vec3(0.72, 0.82, 0.92), agent.signal.rgb, 0.42);
+        if (params.beaconScenario == 4 && agent.internal.y >= 0.5) {
+            bodyColor = mix(bodyColor, vec3(1.00, 0.55, 0.08),
+                            0.35 + 0.45 * clamp(agent.internal.x, 0.0, 1.0));
+        }
         bodyColor = mix(bodyColor, vec3(1.0, 0.35, 0.12), wallContact * 0.75);
         bodyColor = mix(bodyColor, vec3(1.0, 0.95, 0.35), agentContact * 0.85);
         color = vec4(bodyColor, params.opacity);
@@ -132,17 +138,28 @@ void main() {
         if (params.beaconScenario == 0) {
             world = agent.target.xy + circleVertex(gl_VertexIndex, 0.060, 16);
             color = vec4(trialColors[trial % 4], params.opacity);
-        } else if (params.beaconScenario == 2) {
-            const float orbitRadius = params.worldRadius * params.beaconRadiusRatio;
-            const float targetLength = length(agent.target.xy);
-            const vec2 base = targetLength > 0.000001
-                                  ? agent.target.xy / targetLength * orbitRadius
-                                  : vec2(orbitRadius, 0.0);
-            const float cosine = cos(params.beaconMotionValue);
-            const float sine = sin(params.beaconMotionValue);
-            world = mat2(cosine, sine, -sine, cosine) * base;
+        } else if (params.beaconScenario == 2 || params.beaconScenario == 4) {
+            if (params.beaconScenario == 4 && gl_InstanceIndex == 1) {
+                const float targetLength = length(agent.target.xy);
+                world = targetLength > 0.000001
+                            ? -agent.target.xy / targetLength * params.worldRadius *
+                                  HomeRadiusRatio
+                            : vec2(-params.worldRadius * HomeRadiusRatio, 0.0);
+                color = vec4(0.12, 0.72, 1.00, params.opacity);
+            } else {
+                const float orbitRadius = params.worldRadius * params.beaconRadiusRatio;
+                const float targetLength = length(agent.target.xy);
+                const vec2 base = targetLength > 0.000001
+                                      ? agent.target.xy / targetLength * orbitRadius
+                                      : vec2(orbitRadius, 0.0);
+                const float cosine = cos(params.beaconMotionValue);
+                const float sine = sin(params.beaconMotionValue);
+                world = mat2(cosine, sine, -sine, cosine) * base;
+                color = params.beaconScenario == 4
+                            ? vec4(1.00, 0.55, 0.08, params.opacity)
+                            : vec4(trialColors[trial % 4], params.opacity);
+            }
             world += circleVertex(gl_VertexIndex, 0.060, 16);
-            color = vec4(trialColors[trial % 4], params.opacity);
         } else if (params.beaconScenario == 3) {
             world = randomMovingBeaconPosition(trial);
             world += circleVertex(gl_VertexIndex, 0.060, 16);

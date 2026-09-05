@@ -252,7 +252,10 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 3, 1.0F, arenaVertices, 1);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48, visibleAgentCount);
     const std::uint32_t beaconInstances =
-        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals ? 2U : 1U;
+        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals ||
+                state_.physics.beaconScenario == BeaconScenario::ForageHome
+            ? 2U
+            : 1U;
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 1, 0.90F, 48, beaconInstances);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 0, 0.88F, 48, visibleAgentCount);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 4, 0.95F, 3, visibleAgentCount);

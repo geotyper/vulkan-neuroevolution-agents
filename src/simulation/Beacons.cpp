@@ -11,6 +11,9 @@ namespace {
 constexpr std::array<Float4, 4> colors{
     Float4{0.20F, 0.85F, 1.00F, 0.0F}, Float4{1.00F, 0.35F, 0.75F, 0.0F},
     Float4{0.55F, 1.00F, 0.35F, 0.0F}, Float4{1.00F, 0.72F, 0.20F, 0.0F}};
+constexpr Float4 resourceColor{1.00F, 0.55F, 0.08F, 0.0F};
+constexpr Float4 homeColor{0.12F, 0.72F, 1.00F, 0.0F};
+constexpr float homeRadiusRatio = 0.58F;
 constexpr float randomMotionSegmentSeconds = 3.0F;
 constexpr float tau = 6.28318530718F;
 
@@ -85,6 +88,15 @@ Float4 stationaryBeaconPosition(const std::uint32_t trial, const float worldRadi
     return {normalized.x * worldRadius, normalized.y * worldRadius, 0.0F, 0.0F};
 }
 
+Float4 homeBeaconPosition(const AgentState& agent, const float worldRadius) {
+    const float targetLength = std::hypot(agent.target.x, agent.target.y);
+    if (targetLength <= 0.000001F) {
+        return {-worldRadius * homeRadiusRatio, 0.0F, 0.0F, 0.0F};
+    }
+    const float scale = -worldRadius * homeRadiusRatio / targetLength;
+    return {agent.target.x * scale, agent.target.y * scale, 0.0F, 0.0F};
+}
+
 ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& settings) {
     const std::uint32_t trial = static_cast<std::uint32_t>(std::max(agent.target.z, 0.0F));
     if (settings.beaconScenario == BeaconScenario::Stationary) {
@@ -93,7 +105,8 @@ ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& setti
               {}}},
             1};
     }
-    if (settings.beaconScenario == BeaconScenario::Rotating) {
+    if (settings.beaconScenario == BeaconScenario::Rotating ||
+        settings.beaconScenario == BeaconScenario::ForageHome) {
         const float orbitRadius = settings.worldRadius * settings.beaconRadiusRatio;
         const float targetLength = std::hypot(agent.target.x, agent.target.y);
         const float baseX =
@@ -104,7 +117,15 @@ ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& setti
         const float sine = std::sin(settings.beaconRotationAngle);
         const float rotatedX = baseX * cosine - baseY * sine;
         const float rotatedY = baseX * sine + baseY * cosine;
-        return {{{Beacon{{rotatedX, rotatedY, 0.0F, 0.0F}, colors[trial % colors.size()]}, {}}}, 1};
+        const Beacon resource{{rotatedX, rotatedY, 0.0F, 0.0F},
+                              settings.beaconScenario == BeaconScenario::ForageHome
+                                  ? resourceColor
+                                  : colors[trial % colors.size()]};
+        if (settings.beaconScenario == BeaconScenario::ForageHome) {
+            return {{{resource, Beacon{homeBeaconPosition(agent, settings.worldRadius), homeColor}}},
+                    2};
+        }
+        return {{{resource, {}}}, 1};
     }
     if (settings.beaconScenario == BeaconScenario::RandomMovement) {
         return {
@@ -125,6 +146,12 @@ ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& setti
 
 float nearestBeaconDistance(const AgentState& agent, const SimulationStep& settings) {
     const ActiveBeacons beacons = activeBeacons(agent, settings);
+    if (settings.beaconScenario == BeaconScenario::ForageHome) {
+        const std::size_t targetIndex = agent.internal.y >= 0.5F ? 1 : 0;
+        const float dx = beacons.values[targetIndex].position.x - agent.pose.x;
+        const float dy = beacons.values[targetIndex].position.y - agent.pose.y;
+        return std::sqrt(dx * dx + dy * dy);
+    }
     float nearest = settings.worldRadius * 4.0F;
     for (std::size_t index = 0; index < beacons.count; ++index) {
         const float dx = beacons.values[index].position.x - agent.pose.x;
@@ -137,6 +164,10 @@ float nearestBeaconDistance(const AgentState& agent, const SimulationStep& setti
 std::uint32_t completedBeaconPhases(const AgentState& agent) {
     const auto mask = static_cast<std::uint32_t>(std::max(agent.target.w, 0.0F) + 0.5F);
     return std::popcount(mask);
+}
+
+std::uint32_t completedForageCycles(const AgentState& agent) {
+    return static_cast<std::uint32_t>(std::max(agent.target.w, 0.0F) + 0.5F);
 }
 
 std::uint32_t beaconPhaseForStep(const BeaconScenario scenario, const std::uint32_t step,

@@ -219,8 +219,10 @@ void SimulationModule::finishGeneration() {
     for (std::size_t genome = 0; genome < fitness.size(); ++genome) {
         for (std::size_t trial = 0; trial < trialsPerGenome; ++trial) {
             const AgentState& agent = agents_[genome * trialsPerGenome + trial];
-            fitness[genome] += agentFitness(agent);
-            completedPhases += completedBeaconPhases(agent);
+            fitness[genome] += agentFitness(agent, state_.physics.beaconScenario);
+            completedPhases += state_.physics.beaconScenario == BeaconScenario::ForageHome
+                                   ? static_cast<std::size_t>(completedForageCycles(agent) > 0)
+                                   : completedBeaconPhases(agent);
         }
         fitness[genome] /= static_cast<float>(trialsPerGenome);
     }
@@ -347,7 +349,9 @@ GpuStepParameters SimulationModule::stepParameters(const std::uint32_t generatio
             beaconMotionValue,
             state_.physics.beaconRadiusRatio,
             state_.physics.deltaTime * static_cast<float>(generationStep),
-            state_.physics.beaconTeleportProbability,
+            state_.physics.beaconScenario == BeaconScenario::ForageHome
+                ? state_.physics.forageCargoDecayRate
+                : state_.physics.beaconTeleportProbability,
             static_cast<std::uint32_t>(evolution_.generation())};
 }
 
