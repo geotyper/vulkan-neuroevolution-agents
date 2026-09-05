@@ -1,6 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
+#include "simulation/trail_kernel.glsl"
 #include "worlds/scenario_params.glsl"
 
 struct Agent {
@@ -20,6 +21,9 @@ struct Agent {
 layout(std430, set = 0, binding = 0) readonly buffer Agents {
     Agent agents[];
 };
+layout(std430, set = 0, binding = 1) readonly buffer TrailField {
+    uint trailValues[];
+};
 
 layout(push_constant) uniform DrawParameters {
     float scaleX;
@@ -33,7 +37,7 @@ layout(push_constant) uniform DrawParameters {
     uint selectedWorld;
     uint agentsPerWorld;
     uint trialsPerGenome;
-    uint reserved;
+    uint trailWidth;
     ScenarioParameters scenario;
 } params;
 
@@ -63,6 +67,37 @@ void main() {
     Agent agent = agents[params.mode == 0u || params.mode == 2u || params.mode == 4u
                              ? agentIndex
                              : firstAgentIndex];
+    if (params.mode == 5u) {
+        // One quad per trail cell of the visible world. Reading the field in the
+        // vertex stage keeps the whole renderer on the procedural-instance path
+        // it already uses, with no per-fragment buffer access to add.
+        const uint cell = uint(gl_InstanceIndex);
+        const uint cellX = cell % params.trailWidth;
+        const uint cellY = cell / params.trailWidth;
+        const vec2 corners[6] = vec2[](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
+                                       vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
+        const vec2 corner = corners[gl_VertexIndex];
+        const vec2 cellOrigin = vec2(float(cellX), float(cellY)) * TrailCellSize;
+        const vec2 cellWorld =
+            cellOrigin + corner * TrailCellSize - vec2(params.worldRadius);
+
+        const uint cellsPerWorld = params.trailWidth * params.trailWidth;
+        vec3 deposit;
+        for (uint channel = 0u; channel < TrailChannels; ++channel) {
+            deposit[channel] =
+                float(trailValues[trailValueIndex(params.selectedWorld, cellsPerWorld, cell,
+                                                  channel)]) /
+                TrailFixedPointScale;
+        }
+        // Same soft saturation the antennae see, so what is drawn is what the
+        // network is actually given rather than a prettier version of it.
+        const float strength = max(max(deposit.r, deposit.g), deposit.b);
+        const vec3 tint = strength > 0.0 ? deposit / strength : vec3(0.0);
+        color = vec4(tint, params.opacity * (strength / (1.0 + strength)));
+        gl_Position = vec4(cellWorld.x * params.scaleX, cellWorld.y * params.scaleY, 0.0, 1.0);
+        return;
+    }
+
     vec2 world;
     if (params.mode == 0) {
         world = agent.pose.xy + circleVertex(gl_VertexIndex, agent.pose.w, 16);

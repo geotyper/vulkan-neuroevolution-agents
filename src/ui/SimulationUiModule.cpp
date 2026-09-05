@@ -242,8 +242,8 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     if (ImGui::Checkbox("Leave trails", &state_.physics.trailEnabled)) {
         state_.controls.resetRequested = true;
     }
-    ImGui::SliderFloat("Trail deposit / s", &state_.physics.trailDepositRate, 0.0F, 4.0F, "%.2f");
-    ImGui::SliderFloat("Beacon deposit / s", &state_.physics.beaconTrailDepositRate, 0.0F, 16.0F,
+    ImGui::SliderFloat("Trail deposit / s", &state_.physics.trailDepositRate, 0.0F, 24.0F, "%.2f");
+    ImGui::SliderFloat("Beacon deposit / s", &state_.physics.beaconTrailDepositRate, 0.0F, 64.0F,
                        "%.2f");
     ImGui::SliderFloat("Trail half-life (s)", &state_.physics.trailHalfLife, 0.25F, 30.0F, "%.2f",
                        ImGuiSliderFlags_Logarithmic);

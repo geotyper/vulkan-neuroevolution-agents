@@ -185,9 +185,14 @@ struct SimulationStep {
     float forageDeliveryReward{4.0F};       // fitness per unit of cargo delivered
     // Trail field. The deposit is per second and the lifetime is a half-life in
     // seconds, so neither becomes a function of the step rate.
-    float trailDepositRate{1.0F};       // full-scale deposits per second of standing still
-    float trailHalfLife{6.0F};          // s for a mark to fade to half
-    float beaconTrailDepositRate{4.0F}; // beacons mark harder than agents do
+    // Deposit rates come from what a single pass has to leave behind, not from a
+    // round number: at 0.55 m/s an agent is over a 6 cm cell for about six steps,
+    // so 1.0/s would leave a 1.6% mark -- invisible on screen and near-nothing to
+    // the antennae. These leave a pass at roughly a third of full scale, while
+    // standing still still saturates the cell.
+    float trailDepositRate{4.0F};        // agent mark laid per second
+    float trailHalfLife{6.0F};           // s for a mark to fade to half
+    float beaconTrailDepositRate{12.0F}; // beacons mark harder than agents do
     bool trailEnabled{true};
     FitnessWeights fitness{};
     std::uint32_t beaconMotionSeed{};

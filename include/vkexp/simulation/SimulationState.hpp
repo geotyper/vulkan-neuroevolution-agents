@@ -55,6 +55,16 @@ struct AgentBufferView {
     [[nodiscard]] VkBuffer currentBuffer() const { return buffers[currentIndex]; }
 };
 
+// Published so the renderer can draw the field it never writes. Sized once for
+// the largest arena and the most logical worlds the population can be split
+// into, so the buffer never reallocates and this handle never goes stale.
+struct TrailBufferView {
+    VkBuffer buffer{};
+    VkDeviceSize size{};
+    std::uint32_t width{};
+    std::uint32_t cellsPerWorld{};
+};
+
 struct SimulationViewport {
     VkImageView imageView{};
     VkSampler sampler{};
@@ -72,6 +82,7 @@ struct SimulationState {
     SimulationWorlds worlds;
     SimulationStep physics;
     AgentBufferView agents;
+    TrailBufferView trail;
     SimulationViewport viewport;
 };
 

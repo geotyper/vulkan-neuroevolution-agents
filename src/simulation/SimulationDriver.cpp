@@ -91,8 +91,8 @@ void SimulationDriver::createStepResources() {
     updateWorldLayout();
     updateGridDimensions();
     ensureGridCapacity();
-    updateTrailDimensions();
     ensureTrailCapacity();
+    updateTrailDimensions();
     const VkDeviceSize gridLinkBytes = sizeof(std::int32_t) * agentCount;
     gridNext_.create(physicalDevice_, device_, {gridLinkBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
 
@@ -197,6 +197,7 @@ void SimulationDriver::createStepResources() {
 
 void SimulationDriver::destroyResources() {
     state_.agents = {};
+    state_.trail = {};
     gridBuildPipeline_ = {};
     gridClearPipeline_ = {};
     stepPipeline_ = {};
@@ -345,14 +346,21 @@ float SimulationDriver::gridCellSize() const {
 void SimulationDriver::updateTrailDimensions() {
     trailWidth_ = trailWidthForWorld(state_.physics.worldRadius);
     trailCellsPerWorld_ = trailWidth_ * trailWidth_;
+    state_.trail = {trailField_.buffer(), trailField_.size(), trailWidth_, trailCellsPerWorld_};
 }
 
 void SimulationDriver::ensureTrailCapacity() {
-    // Sized for the largest arena so switching world size never reallocates or
-    // rebuilds descriptors, the same trade the neighbour grid makes.
+    // Sized once for the largest arena and the most logical worlds the population
+    // can be split into. Unlike the neighbour grid this buffer is also read by the
+    // renderer, which writes its descriptor once, so a later reallocation would
+    // leave the renderer pointing at freed memory. Never growing it is cheaper
+    // than teaching two modules to renegotiate.
     const std::uint32_t maximumWidth = trailWidthForWorld(worldRadiusForSize(WorldSize::Large));
+    const auto genomeCount = static_cast<std::uint32_t>(evolution_.population().size());
+    const std::uint32_t maximumWorlds =
+        logicalWorldCount(genomeCount, minimumAgentsPerWorld, config_.trialsPerGenome);
     const VkDeviceSize requiredBytes = sizeof(std::uint32_t) * maximumWidth * maximumWidth *
-                                       trail::kernel::TrailChannels * state_.worlds.worldCount;
+                                       trail::kernel::TrailChannels * maximumWorlds;
     if (trailField_.size() >= requiredBytes) {
         return;
     }
@@ -413,8 +421,8 @@ void SimulationDriver::refreshGridForWorldSize() {
     updateWorldLayout();
     ensureGridCapacity();
     updateGridDimensions();
-    updateTrailDimensions();
     ensureTrailCapacity();
+    updateTrailDimensions();
 }
 
 void SimulationDriver::ensureGridCapacity() {
@@ -665,6 +673,11 @@ std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                      VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
                      VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_HOST_READ_BIT);
+    // The renderer reads the field from the vertex stage, so the deposit pass's
+    // writes need to be made visible there too, not only to the next compute read.
+    cmdBufferBarrier(commands, trailField_.buffer(), VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                     VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     state_.statistics.step += stepCount;
     return stepCount;
 }

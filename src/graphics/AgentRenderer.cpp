@@ -23,7 +23,7 @@ struct DrawParameters {
     std::uint32_t selectedWorld{};
     std::uint32_t agentsPerWorld{};
     std::uint32_t trialsPerGenome{};
-    std::uint32_t reserved{};
+    std::uint32_t trailWidth{};
     ScenarioParameterBlock scenario;
 };
 static_assert(sizeof(DrawParameters) == 96);
@@ -44,25 +44,31 @@ void AgentRenderer::createPipeline(AppContext& context) {
         throw std::logic_error("AgentRenderer requires SimulationModule to be attached first");
     }
     const VkDevice device = context.vulkan.device();
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    // 0: the agent state being displayed, 1: the trail field. Both are read in
+    // the vertex stage, which keeps every draw on the same procedural path.
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    for (std::uint32_t index = 0; index < bindings.size(); ++index) {
+        bindings[index].binding = index;
+        bindings[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[index].descriptorCount = 1;
+        bindings[index].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    }
     VkDescriptorSetLayoutCreateInfo descriptorInfo{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    descriptorInfo.bindingCount = 1;
-    descriptorInfo.pBindings = &binding;
+    descriptorInfo.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    descriptorInfo.pBindings = bindings.data();
     if (vkCreateDescriptorSetLayout(device, &descriptorInfo, nullptr,
                                     descriptorSetLayout_.put(device)) != VK_SUCCESS) {
         throw std::runtime_error("Unable to create agent renderer descriptor layout");
     }
-    descriptorAllocator_.create(device, {2, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}}});
+    descriptorAllocator_.create(device, {2, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}}});
     for (std::size_t index = 0; index < descriptorSets_.size(); ++index) {
         descriptorSets_[index] = descriptorAllocator_.allocate(descriptorSetLayout_.get());
         DescriptorSetWriter{}
             .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, state_.agents.buffers[index], 0,
                          state_.agents.size)
+            .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, state_.trail.buffer, 0,
+                         state_.trail.size)
             .update(device, descriptorSets_[index]);
     }
 
@@ -192,7 +198,7 @@ void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, con
         state_.worlds.selectedWorld,
         state_.worlds.agentsPerWorld,
         state_.agents.trialsPerGenome,
-        0U,
+        state_.trail.width,
         scenarioDefinition(settings.beaconScenario).gpuParameters(settings)};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(parameters), &parameters);
@@ -245,6 +251,12 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
         agentsInLogicalWorld(state_.agents.genomeCount, state_.worlds.agentsPerWorld,
                              state_.agents.trialsPerGenome, state_.worlds.selectedWorld);
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 3, 1.0F, arenaVertices, 1);
+    // The field goes on top of the arena and under everything that moves, so a
+    // path reads as ground rather than as another agent.
+    if (state_.physics.trailEnabled && state_.trail.cellsPerWorld > 0) {
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 5, 0.85F, 6,
+             state_.trail.cellsPerWorld);
+    }
     draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48, visibleAgentCount);
     const std::uint32_t beaconInstances =
         scenarioDefinition(state_.physics.beaconScenario).beaconCount;
