@@ -7,6 +7,7 @@
 #include "vkexp/profiling/ProfilerTypes.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
 #include "vkexp/simulation/Sensors.hpp"
+#include "vkexp/simulation/TrailKernel.hpp"
 #include "vkexp/simulation/Units.hpp"
 #include "vkexp/worlds/ScenarioKernel.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
@@ -215,6 +216,7 @@ void testNeuralNetworkContract() {
     check(vkexp::neuro::Topology::inputCount ==
               kernel::BrainLightReceptorCount * kernel::BrainLightChannels +
                   kernel::BrainTactileSectorCount * kernel::BrainTactileChannels +
+                  kernel::BrainAntennaCount * kernel::BrainAntennaChannels +
                   kernel::BrainSelfInputCount + kernel::BrainTaskInputCount +
                   kernel::BrainRecurrentCount,
           "Input capacity is the sum of the declared sensor blocks");
@@ -234,8 +236,19 @@ void testNeuralNetworkContract() {
     check(kernel::brainTactileChannelIndex(kernel::BrainTactileSectorCount - 1,
                                            kernel::BrainTactileChannels - 1) +
                   1 ==
+              kernel::BrainAntennaOffset,
+          "Antenna block follows the tactile block");
+    check(kernel::brainAntennaChannelIndex(kernel::BrainAntennaCount - 1,
+                                           kernel::BrainAntennaChannels - 1) +
+                  1 ==
               kernel::BrainSelfOffset,
-          "Self block follows the tactile block");
+          "Self block follows the antenna block");
+    // The antennae have to reach into different trail cells or the three
+    // readings collapse into one number and carry no gradient.
+    const float antennaSpread =
+        2.0F * kernel::BrainAntennaLength * std::sin(kernel::BrainAntennaHalfSpread);
+    check(antennaSpread > vkexp::trail::kernel::TrailCellSize * 2.0F,
+          "Outer antenna tips are more than two trail cells apart");
     check(kernel::BrainSelfOffset + kernel::BrainSelfInputCount == kernel::BrainTaskOffset,
           "Task block follows the self block");
     check(kernel::BrainTaskOffset + kernel::BrainTaskInputCount ==
@@ -277,21 +290,22 @@ void testMultimodalSensors() {
     agent.agentTouch1.w = 0.8F;
     const vkexp::SimulationStep settings{};
     const vkexp::neuro::Inputs inputs = vkexp::sampleAgentInputs(agent, settings);
-    constexpr std::size_t center = 3 * vkexp::neuro::Topology::lightChannelsPerReceptor;
+    // Offsets come from the preset, not from arithmetic repeated here: the point
+    // of testNeuralNetworkContract is that the preset derives them correctly, so
+    // restating the sums would only test the restatement.
+    namespace topology = vkexp::neuro;
+    constexpr std::size_t center = 3 * topology::Topology::lightChannelsPerReceptor;
     check(inputs[center] > 0.0F && inputs[center + 1] > inputs[center],
           "RGB photoreceptor observes cyan beacon");
     check(inputs[center + 3] > 0.0F, "Photoreceptor luminance channel");
-    constexpr std::size_t tactile = vkexp::neuro::Topology::lightReceptorCount *
-                                    vkexp::neuro::Topology::lightChannelsPerReceptor;
+    constexpr std::size_t tactile = topology::Topology::tactileOffset;
     check(closeTo(inputs[tactile], 0.7F), "Wall tactile sector mapping");
     check(closeTo(inputs[tactile + 7 * 2 + 1], 0.8F), "Agent tactile sector mapping");
-    constexpr std::size_t task = tactile +
-                                 vkexp::neuro::Topology::tactileSectorCount *
-                                     vkexp::neuro::Topology::tactileChannelsPerSector +
-                                 vkexp::neuro::Topology::selfInputCount;
+    constexpr std::size_t task = topology::Topology::taskOffset;
     check(closeTo(inputs[task], 0.7F) && closeTo(inputs[task + 1], 1.0F),
           "Cargo and task-state input mapping");
-    check(closeTo(inputs[task + 2], -0.4F) && closeTo(inputs[task + 3], 0.6F),
+    constexpr std::size_t recurrent = topology::Topology::recurrentInputOffset;
+    check(closeTo(inputs[recurrent], -0.4F) && closeTo(inputs[recurrent + 1], 0.6F),
           "Recurrent memory input mapping");
 }
 

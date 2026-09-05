@@ -1,10 +1,12 @@
 #pragma once
 
+#include "vkexp/simulation/TrailKernel.hpp"
 #include "vkexp/simulation/Units.hpp"
 #include "vkexp/worlds/ScenarioKernel.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -155,9 +157,16 @@ struct SimulationStep {
     float arrivalRadiusMultiplier{1.0F};   // dimensionless
     float maximumSpeed{0.55F};             // m/s
     float maximumAngularSpeed{3.0F};       // rad/s
-    float lightSensorRange{2.4F};          // m
-    float lightExposure{1.25F};            // dimensionless tone-mapping gain
-    float collisionRestitution{0.35F};     // dimensionless
+    float lightSensorRange{2.4F};          // m, derived from lightRangeRatio
+    // Light range as a fraction of the arena radius. Fixing it in metres made a
+    // bigger world a blind-search task stacked on top of the intended one: at
+    // 2.4 m the beacon is invisible from most of the large arena, so there is no
+    // gradient to follow for most of a trial. Scaling it keeps perception
+    // proportional, so world size changes how far things are, not whether they
+    // can be seen at all. 2.4 m small, 3.6 m medium, 7.2 m large.
+    float lightRangeRatio{2.4F / smallWorldRadius};
+    float lightExposure{1.25F};        // dimensionless tone-mapping gain
+    float collisionRestitution{0.35F}; // dimensionless
     // 1/s. Overlap is resolved as 1 - exp(-rate * dt), the same exponential form
     // the drags use, so contact resolution no longer depends on the step rate.
     // 113.8/s reproduces the old fixed 0.85-per-step at 60 Hz to within 0.03%.
@@ -174,6 +183,12 @@ struct SimulationStep {
     float forageCargoDecayRate{0.08F};      // cargo fraction lost per second
     float foragePickupReward{0.25F};        // fitness per pickup event
     float forageDeliveryReward{4.0F};       // fitness per unit of cargo delivered
+    // Trail field. The deposit is per second and the lifetime is a half-life in
+    // seconds, so neither becomes a function of the step rate.
+    float trailDepositRate{1.0F};       // full-scale deposits per second of standing still
+    float trailHalfLife{6.0F};          // s for a mark to fade to half
+    float beaconTrailDepositRate{4.0F}; // beacons mark harder than agents do
+    bool trailEnabled{true};
     FitnessWeights fitness{};
     std::uint32_t beaconMotionSeed{};
     WorldShape worldShape{WorldShape::Circle};
@@ -184,6 +199,25 @@ struct SimulationStep {
     bool agentCollisionsEnabled{true};
     bool agentLightEnabled{true};
 };
+
+// Cells across the arena's bounding square. Constant in metres, so world size
+// changes how much ground there is, not how finely it is smelled.
+[[nodiscard]] inline std::uint32_t trailWidthForWorld(const float worldRadius) {
+    return static_cast<std::uint32_t>(
+        std::ceil((worldRadius * 2.0F) / trail::kernel::TrailCellSize));
+}
+
+[[nodiscard]] inline float lightRangeForWorld(const SimulationStep& settings) {
+    return settings.worldRadius * settings.lightRangeRatio;
+}
+
+// The neighbour grid scales with the arena for the same reason: at a fixed cell
+// size the large world holds 8464 cells against the small world's 961 at the
+// same agent density, so the per-agent sweep would grow with world size for no
+// gain in resolution. Scaling keeps the grid 31x31 in every world.
+[[nodiscard]] inline float gridCellSizeForWorld(const float baseCellSize, const float worldRadius) {
+    return baseCellSize * (worldRadius / smallWorldRadius);
+}
 
 [[nodiscard]] inline float beaconArrivalRadius(const SimulationStep& settings) {
     return beaconVisualRadius * settings.arrivalRadiusMultiplier;
@@ -248,15 +282,24 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t beaconPhase{};
     std::uint32_t beaconPhaseChanged{};
     std::uint32_t beaconCount{};
+    float trailCellSize{};
+    float trailSurvival{}; // per-step factor, already resolved from the half-life
+    float trailDeposit{};  // fixed-point units an agent adds this step
+    float beaconTrailDeposit{};
+    std::uint32_t trailWidth{};
+    std::uint32_t trailCellsPerWorld{};
+    std::uint32_t trailEnabled{};
+    std::uint32_t agentsPerWorld{}; // lets one agent per world deposit the beacon
     GpuFitnessWeights fitness;
     ScenarioParameterBlock scenario;
 };
 
-static_assert(sizeof(GpuStepParameters) == 192);
+static_assert(sizeof(GpuStepParameters) == 224);
 static_assert(offsetof(GpuStepParameters, agentCount) == 64);
 static_assert(offsetof(GpuStepParameters, beaconScenario) == 96);
-static_assert(offsetof(GpuStepParameters, fitness) == 112);
-static_assert(offsetof(GpuStepParameters, scenario) == 144);
+static_assert(offsetof(GpuStepParameters, trailCellSize) == 112);
+static_assert(offsetof(GpuStepParameters, fitness) == 144);
+static_assert(offsetof(GpuStepParameters, scenario) == 176);
 
 [[nodiscard]] constexpr GpuFitnessWeights packFitnessWeights(const FitnessWeights& weights) {
     return {weights.objectiveBonus,

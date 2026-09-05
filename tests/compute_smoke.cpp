@@ -160,11 +160,16 @@ constexpr double accumulatedDriftBudget = 1.0e-3;
 
 // Mirrors SimulationDriver::stepParameters so the tests exercise the same
 // packing path the application uses instead of a private copy of it.
-vkexp::GpuStepParameters makeStepParameters(const vkexp::SimulationStep& settings,
-                                            const std::uint32_t agentCount,
-                                            const std::uint32_t trialsPerGenome,
-                                            const std::uint32_t gridWidth,
-                                            const std::uint32_t gridCellsPerWorld) {
+vkexp::GpuStepParameters
+makeStepParameters(const vkexp::SimulationStep& settings, const std::uint32_t agentCount,
+                   const std::uint32_t trialsPerGenome, const std::uint32_t gridWidth,
+                   const std::uint32_t gridCellsPerWorld, const std::uint32_t trailWidth = 1,
+                   const std::uint32_t trailCellsPerWorld = 1,
+                   const std::uint32_t agentsPerWorld = 1,
+                   // The trail field is GPU-only state with no CPU
+                   // counterpart, so parity runs with it off and
+                   // runTrailFieldProbe covers it directly.
+                   const bool trailEnabled = false) {
     const vkexp::ScenarioDefinition& scenario = vkexp::scenarioDefinition(settings.beaconScenario);
     return {settings.deltaTime,
             settings.worldRadius,
@@ -194,6 +199,18 @@ vkexp::GpuStepParameters makeStepParameters(const vkexp::SimulationStep& setting
             settings.beaconPhase,
             settings.beaconPhaseChanged ? 1U : 0U,
             scenario.beaconCount,
+            vkexp::trail::kernel::TrailCellSize,
+            vkexp::trail::kernel::trailSurvival(
+                vkexp::trail::kernel::trailDecayRateForHalfLife(settings.trailHalfLife),
+                settings.deltaTime),
+            settings.trailDepositRate * settings.deltaTime *
+                vkexp::trail::kernel::TrailFixedPointScale,
+            settings.beaconTrailDepositRate * settings.deltaTime *
+                vkexp::trail::kernel::TrailFixedPointScale,
+            trailWidth,
+            trailCellsPerWorld,
+            trailEnabled ? 1U : 0U,
+            agentsPerWorld,
             vkexp::packFitnessWeights(settings.fitness),
             scenario.gpuParameters(settings)};
 }
@@ -227,8 +244,20 @@ public:
         stepParameters.create(
             context.physicalDevice(), context.device(),
             {sizeof(vkexp::GpuStepParameters) * maximumSteps, storage, hostMemory});
+        // The trail field is GPU-only state, so the parity cases run with it off
+        // and this buffer stays zero; the harness still has to bind it, and
+        // runTrailFieldProbe drives it for real.
+        trailWidth_ = vkexp::trailWidthForWorld(worldRadius);
+        trailCellsPerWorld_ = trailWidth_ * trailWidth_;
+        trail.create(context.physicalDevice(), context.device(),
+                     {sizeof(std::uint32_t) * trailCellsPerWorld_ * worldCount *
+                          vkexp::trail::kernel::TrailChannels,
+                      storage, hostMemory});
+        std::vector<std::uint32_t> emptyField(
+            trailCellsPerWorld_ * worldCount * vkexp::trail::kernel::TrailChannels, 0U);
+        trail.write(emptyField.data(), sizeof(std::uint32_t) * emptyField.size());
 
-        std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
         for (std::uint32_t binding = 0; binding < bindings.size(); ++binding) {
             bindings[binding].binding = binding;
             bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -243,7 +272,7 @@ public:
                                         layout_.put(context.device())) != VK_SUCCESS) {
             throw std::runtime_error("Unable to create agent step descriptor layout");
         }
-        descriptors_.create(context.device(), {1, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6}}});
+        descriptors_.create(context.device(), {1, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7}}});
         set_ = descriptors_.allocate(layout_.get());
         vkexp::DescriptorSetWriter{}
             .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, inputAgents.buffer(), 0,
@@ -257,6 +286,7 @@ public:
                          gridNext.size())
             .writeBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stepParameters.buffer(), 0,
                          stepParameters.size())
+            .writeBuffer(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trail.buffer(), 0, trail.size())
             .update(context.device(), set_);
         pipeline_ = vkexp::ComputePipelineBuilder{context.physicalDevice(), context.device()}
                         .shader(VKEXP_SHADER_DIR "/agent_step.comp.spv")
@@ -309,6 +339,25 @@ public:
 
     [[nodiscard]] std::uint32_t gridWidth() const { return gridWidth_; }
     [[nodiscard]] std::uint32_t gridCellsPerWorld() const { return gridCellsPerWorld_; }
+    [[nodiscard]] std::uint32_t trailWidth() const { return trailWidth_; }
+    [[nodiscard]] std::uint32_t trailCellsPerWorld() const { return trailCellsPerWorld_; }
+
+    // Writes one cell of the field directly. The deposit shader has its own
+    // addressing; this drives the read path from a known ground truth so a
+    // failure points at the antennae rather than at whoever wrote the field.
+    void markTrailCell(const std::uint32_t world, const std::uint32_t cell, const float red,
+                       const float green, const float blue) {
+        std::vector<std::uint32_t> field(
+            trailCellsPerWorld_ * worldCount_ * vkexp::trail::kernel::TrailChannels, 0U);
+        const float channels[] = {red, green, blue};
+        for (std::uint32_t channel = 0; channel < vkexp::trail::kernel::TrailChannels; ++channel) {
+            field[vkexp::trail::kernel::trailValueIndex(world, trailCellsPerWorld_, cell,
+                                                        channel)] =
+                static_cast<std::uint32_t>(channels[channel] *
+                                           vkexp::trail::kernel::TrailFixedPointScale);
+        }
+        trail.write(field.data(), sizeof(std::uint32_t) * field.size());
+    }
 
     vkexp::BufferResource inputAgents;
     vkexp::BufferResource outputAgents;
@@ -316,11 +365,14 @@ public:
     vkexp::BufferResource gridHeads;
     vkexp::BufferResource gridNext;
     vkexp::BufferResource stepParameters;
+    vkexp::BufferResource trail;
 
 private:
     vkexp::HeadlessComputeContext& context_;
     std::uint32_t agentCount_{};
     std::uint32_t gridWidth_{};
+    std::uint32_t trailWidth_{};
+    std::uint32_t trailCellsPerWorld_{};
     std::uint32_t gridCellsPerWorld_{};
     std::uint32_t worldCount_{};
     vkexp::UniqueDescriptorSetLayout layout_;
@@ -331,6 +383,12 @@ private:
 
 constexpr std::size_t agentFloatCount = sizeof(vkexp::AgentState) / sizeof(float);
 using AgentDrift = std::array<double, agentFloatCount>;
+
+void require(const bool condition, const std::string& message) {
+    if (!condition) {
+        throw std::runtime_error(message);
+    }
+}
 
 void compareAgents(const vkexp::AgentState& expected, const vkexp::AgentState& actual,
                    const float tolerance, const std::string& context,
@@ -459,6 +517,94 @@ void runTrajectoryParity(vkexp::HeadlessComputeContext& context,
 // base offset makes an agent read another genome's weights, which a parity test
 // on a single agent cannot see. Each genome gets a distinctive motor bias, and
 // every agent must drive exactly as its own genome says.
+// The trail field is GPU-only state, so the parity cases cannot reach it. What
+// has to be checked instead is the coupling: a mark under one antenna tip must
+// reach that antenna's inputs and nobody else's, and must change what the agent
+// does. A wrong cell index, a wrong channel or a wrong antenna angle all show up
+// here as the wrong agent turning.
+void runTrailFieldProbe(vkexp::HeadlessComputeContext& context) {
+    constexpr float worldRadius = vkexp::smallWorldRadius;
+    StepHarness harness{context, 1, 1, 1, 1, worldRadius};
+
+    vkexp::SimulationStep settings{};
+    settings.worldRadius = worldRadius;
+    settings.lightSensorRange = vkexp::lightRangeForWorld(settings);
+
+    // Left and right antennae are wired to opposite motors, so the sign of the
+    // turn says which tip did the smelling. Reading one antenna would not be
+    // enough: a shader that fed every tip the same cell would still turn.
+    const vkexp::neuro::BrainShape brain = vkexp::scenarioDefinition(settings.beaconScenario).brain;
+    namespace bk = vkexp::neuro::kernel;
+    const auto inputCount = static_cast<bk::uint>(brain.inputCount);
+    const auto hiddenCount = static_cast<bk::uint>(brain.hiddenCount);
+    std::vector<float> genome(vkexp::neuro::Topology::weightCount, 0.0F);
+    const bk::uint leftGreen = bk::brainAntennaChannelIndex(0u, 1u);
+    const bk::uint rightGreen = bk::brainAntennaChannelIndex(bk::BrainAntennaCount - 1u, 1u);
+    genome[bk::brainHiddenWeightIndex(0, inputCount, 0u, leftGreen)] = 4.0F;
+    genome[bk::brainHiddenWeightIndex(0, inputCount, 1u, rightGreen)] = 4.0F;
+    genome[bk::brainOutputWeightIndex(0, inputCount, hiddenCount, bk::BrainMotorRightOutput, 0u)] =
+        4.0F;
+    genome[bk::brainOutputWeightIndex(0, inputCount, hiddenCount, bk::BrainMotorLeftOutput, 1u)] =
+        4.0F;
+    harness.genomes.write(genome.data(), sizeof(float) * genome.size());
+
+    vkexp::AgentState agent{};
+    agent.pose = {0.0F, 0.0F, 0.0F, vkexp::agentBodyRadius};
+    agent.motion.w = 1.0F;
+    agent.target = {worldRadius * 0.6F, 0.0F, 0.0F, 0.0F};
+    agent.metrics = {worldRadius, worldRadius, 0.0F, 0.0F};
+
+    const auto stepWithField = [&](const bool trailEnabled, const bool markLeft) {
+        // The cell the chosen antenna tip actually lands in, derived the same way
+        // the shader derives it rather than guessed.
+        const float tipAngle =
+            agent.pose.z + bk::brainAntennaAngle(markLeft ? 0u : bk::BrainAntennaCount - 1u);
+        const vkexp::trail::kernel::vec2 tip{
+            agent.pose.x + std::cos(tipAngle) * bk::BrainAntennaLength,
+            agent.pose.y + std::sin(tipAngle) * bk::BrainAntennaLength};
+        const std::uint32_t cell = vkexp::trail::kernel::trailCellIndex(
+            tip, worldRadius, vkexp::trail::kernel::TrailCellSize, harness.trailWidth());
+        harness.markTrailCell(0, cell, 0.0F, 4.0F, 0.0F);
+
+        harness.inputAgents.write(&agent, sizeof(agent));
+        harness.buildGrid(std::span{&agent, 1}, worldRadius);
+        const vkexp::GpuStepParameters parameters =
+            makeStepParameters(settings, 1, 1, harness.gridWidth(), harness.gridCellsPerWorld(),
+                               harness.trailWidth(), harness.trailCellsPerWorld(), 1, trailEnabled);
+        harness.stepParameters.write(&parameters, sizeof(parameters));
+        harness.dispatch(0);
+        vkexp::AgentState stepped{};
+        harness.outputAgents.read(&stepped, sizeof(stepped));
+        return stepped;
+    };
+
+    const vkexp::AgentState blind = stepWithField(false, true);
+    const vkexp::AgentState leftScent = stepWithField(true, true);
+    const vkexp::AgentState rightScent = stepWithField(true, false);
+
+    require(std::abs(blind.motion.z) < 1.0e-6F,
+            "With the trail off the antenna inputs are zero and the agent does not turn");
+    require(leftScent.motion.z > 1.0e-3F,
+            "A mark under the left antenna drives the right motor and turns one way");
+    require(rightScent.motion.z < -1.0e-3F,
+            "The same mark under the right antenna turns the other way");
+
+    // Decay is a per-second half-life, not a per-tick factor, so the same
+    // simulated second has to fade the same amount at any step rate.
+    const float rate = vkexp::trail::kernel::trailDecayRateForHalfLife(2.0F);
+    float slow = 1.0F;
+    for (int step = 0; step < 60; ++step) {
+        slow *= vkexp::trail::kernel::trailSurvival(rate, 1.0F / 60.0F);
+    }
+    float fast = 1.0F;
+    for (int step = 0; step < 240; ++step) {
+        fast *= vkexp::trail::kernel::trailSurvival(rate, 1.0F / 240.0F);
+    }
+    require(std::abs(slow - fast) < 1.0e-4F, "Trail decay over one second ignores the step rate");
+    require(std::abs(slow - 0.70710678F) < 1.0e-4F,
+            "A two-second half-life leaves 1/sqrt(2) after one second");
+}
+
 void runGenomeAddressingProbe(vkexp::HeadlessComputeContext& context) {
     constexpr std::uint32_t genomeCount = 6;
     constexpr std::uint32_t trialsPerGenome = 2;
@@ -741,6 +887,7 @@ int run() {
     runTrajectoryParity(context, vkexp::BeaconScenario::RandomMovement, 540);
     runTrajectoryParity(context, vkexp::BeaconScenario::ForageHome, 540);
     runGenomeAddressingProbe(context);
+    runTrailFieldProbe(context);
     runMultiAgentDeterminism(context);
     std::cout << "Headless compute, CPU/GPU parity and determinism tests passed on "
               << context.deviceName() << '\n';

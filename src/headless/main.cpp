@@ -43,6 +43,10 @@ struct Options {
     std::optional<float> beaconRadiusRatio;
     std::optional<float> lightSensorRange;
     std::optional<float> maximumSpeed;
+    std::optional<float> trailDepositRate;
+    std::optional<float> beaconTrailDepositRate;
+    std::optional<float> trailHalfLife;
+    bool trailEnabled{true};
     bool quiet{};
     std::string savePopulation;
     std::string saveChampion;
@@ -82,7 +86,12 @@ void printHelp(const char* executable) {
                  "  --max-speed <x>          agent speed limit in m/s (default 0.55)\n\n"
                  "Ablations:\n"
                  "  --no-agent-collisions    disable agent-agent collisions\n"
-                 "  --no-agent-light         disable perception of other agents' signals\n\n"
+                 "  --no-agent-light         disable perception of other agents' signals\n"
+                 "  --no-trail               disable the ground trail field entirely\n\n"
+                 "Trail field:\n"
+                 "  --trail-deposit <x>      agent mark laid per second (default 1.0)\n"
+                 "  --beacon-deposit <x>     beacon mark laid per second (default 4.0)\n"
+                 "  --trail-half-life <x>    seconds for a mark to fade to half (default 6)\n\n"
                  "Fitness shaping (sweepable without rebuilding):\n"
                  "  --objective-bonus <x>    score per completed objective (default 2.0)\n"
                  "  --motor-cost <x>         fitness charged per unit of effort (default 0.002)\n"
@@ -182,6 +191,14 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.lightSensorRange = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--max-speed") {
             options.maximumSpeed = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--no-trail") {
+            options.trailEnabled = false;
+        } else if (argument == "--trail-deposit") {
+            options.trailDepositRate = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--beacon-deposit") {
+            options.beaconTrailDepositRate = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--trail-half-life") {
+            options.trailHalfLife = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-agent-collisions") {
             options.agentCollisions = false;
         } else if (argument == "--no-agent-light") {
@@ -229,6 +246,7 @@ int run(const Options& options) {
     state.physics.worldShape = options.worldShape;
     state.physics.worldSize = options.worldSize;
     state.physics.worldRadius = vkexp::worldRadiusForSize(options.worldSize);
+    state.physics.lightSensorRange = vkexp::lightRangeForWorld(state.physics);
     state.physics.agentCollisionsEnabled = options.agentCollisions;
     state.physics.agentLightEnabled = options.agentLight;
     state.physics.fitness = options.fitness;
@@ -243,6 +261,16 @@ int run(const Options& options) {
     }
     if (options.maximumSpeed) {
         state.physics.maximumSpeed = *options.maximumSpeed;
+    }
+    state.physics.trailEnabled = options.trailEnabled;
+    if (options.trailDepositRate) {
+        state.physics.trailDepositRate = *options.trailDepositRate;
+    }
+    if (options.beaconTrailDepositRate) {
+        state.physics.beaconTrailDepositRate = *options.beaconTrailDepositRate;
+    }
+    if (options.trailHalfLife) {
+        state.physics.trailHalfLife = *options.trailHalfLife;
     }
 
     vkexp::EvolutionSettings evolution;
@@ -297,7 +325,8 @@ int run(const Options& options) {
                   << driver.config().trialsPerGenome << " trials = " << state.agents.agentCount
                   << " agents in " << state.worlds.worldCount << " logical worlds\n"
                   << "Ablations:  agent collisions " << (options.agentCollisions ? "on" : "OFF")
-                  << ", agent light " << (options.agentLight ? "on" : "OFF") << "\n\n"
+                  << ", agent light " << (options.agentLight ? "on" : "OFF") << ", trail "
+                  << (options.trailEnabled ? "on" : "OFF") << "\n\n"
                   << "  gen        best      median        mean   arrival\n";
     }
 

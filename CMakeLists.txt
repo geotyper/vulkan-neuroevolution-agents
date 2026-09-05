@@ -42,6 +42,8 @@ set(SHADER_SOURCES
     agent_grid_clear.comp
     agent_grid_build.comp
     agent_step.comp
+    trail_decay.comp
+    trail_deposit.comp
     agents.vert
     agents.frag
 )
@@ -54,6 +56,7 @@ file(GLOB SHADER_INCLUDE_SOURCES CONFIGURE_DEPENDS
     ${SHADER_SOURCE_DIR}/worlds/*.glsl
     ${SHADER_SOURCE_DIR}/worlds/steps/*.glsl
     ${SHADER_SOURCE_DIR}/neuro/*.glsl
+    ${SHADER_SOURCE_DIR}/simulation/*.glsl
 )
 list(APPEND SHADER_INCLUDE_SOURCES ${SHADER_SHARED_KERNELS})
 

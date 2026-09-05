@@ -2,7 +2,8 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "neuro/brain_kernel.glsl"
-#include "worlds/scenario_params.glsl"
+#include "simulation/step_parameters.glsl"
+#include "simulation/trail_kernel.glsl"
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -38,55 +39,12 @@ layout(std430, set = 0, binding = 4) readonly buffer GridLinks {
 
 // Step parameters live in a storage buffer indexed by step rather than in push
 // constants: with the scenario block the structure exceeds the 128 bytes Vulkan
-// guarantees for maxPushConstantsSize. Mirrors GpuStepParameters in
-// include/vkexp/simulation/AgentTypes.hpp.
-// Mirrors GpuFitnessWeights in include/vkexp/simulation/AgentTypes.hpp.
-struct FitnessWeights {
-    float objectiveBonus;
-    float motorCostWeight;
-    float signalCostFactor;
-    float energyDrain;
-    float trackingReward;
-    float reserved0;
-    float reserved1;
-    float reserved2;
-};
-
-struct StepParameters {
-    float deltaTime;
-    float worldRadius;
-    float thrust;
-    float turnAcceleration;
-    float linearDrag;
-    float angularDrag;
-    float sensorFieldOfView;
-    float arrivalRadius;
-    float maximumSpeed;
-    float maximumAngularSpeed;
-    float lightSensorRange;
-    float lightExposure;
-    float collisionRestitution;
-    float contactStiffness;
-    float gridCellSize;
-    float wallCollisionPenalty;
-    uint agentCount;
-    uint brainLayout;
-    uint trialsPerGenome;
-    uint worldShape;
-    uint gridWidth;
-    uint gridCellsPerWorld;
-    uint agentCollisionsEnabled;
-    uint agentLightEnabled;
-    uint beaconScenario;
-    uint beaconPhase;
-    uint beaconPhaseChanged;
-    uint beaconCount;
-    FitnessWeights fitness;
-    ScenarioParameters scenario;
-};
-
+// guarantees for maxPushConstantsSize.
 layout(std430, set = 0, binding = 5) readonly buffer StepParameterBlocks {
     StepParameters stepParameters[];
+};
+layout(std430, set = 0, binding = 6) readonly buffer TrailField {
+    uint trailValues[];
 };
 
 layout(push_constant) uniform StepSelector {
@@ -281,6 +239,25 @@ void main() {
             sector < 4 ? inputAgents[id].agentTouch0[component]
                        : inputAgents[id].agentTouch1[component];
     }
+    // Ground feelers. Each tip reads the trail cell under it; the tips are far
+    // enough apart to land in different cells, which is what makes the reading a
+    // gradient rather than three copies of one number.
+    for (uint antenna = 0u; antenna < BrainAntennaCount; ++antenna) {
+        const float tipAngle = agent.pose.z + brainAntennaAngle(antenna);
+        const vec2 tip = agent.pose.xy + vec2(cos(tipAngle), sin(tipAngle)) * BrainAntennaLength;
+        const uint cell =
+            trailCellIndex(tip, params.worldRadius, params.trailCellSize, params.trailWidth);
+        for (uint channel = 0u; channel < BrainAntennaChannels; ++channel) {
+            const float deposit =
+                params.trailEnabled == 0u
+                    ? 0.0
+                    : float(trailValues[trailValueIndex(world, params.trailCellsPerWorld, cell,
+                                                        channel)]) /
+                          TrailFixedPointScale;
+            inputs[brainAntennaChannelIndex(antenna, channel)] = brainTrailResponse(deposit);
+        }
+    }
+
     inputs[BrainSelfOffset] = clamp(length(agent.motion.xy) / params.maximumSpeed, 0.0, 1.0);
     inputs[BrainSelfOffset + 1u] =
         clamp(agent.motion.z / params.maximumAngularSpeed, -1.0, 1.0);

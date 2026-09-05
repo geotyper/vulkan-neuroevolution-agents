@@ -98,6 +98,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 
 - [x] spatially accelerated additive RGB perception of nearby agents;
 - [x] signal energy cost;
+- [x] decaying ground trail field with antenna sensing (stigmergy);
 - [ ] wall occlusion;
 - [ ] family/colony fitness and related genome batches;
 - [ ] signal-off ablation to prove communication affects fitness;
@@ -143,6 +144,17 @@ Both languages compile it, so raising `BrainSelfInputCount` from 4 to 5 moves th
 CPU evaluator, the sensor sampler, the compute shader and the tests together, and
 nothing else needs editing. The block offsets are asserted to tile the input
 vector without gaps, so a sensor block that no longer fits fails loudly.
+
+## Trail field
+
+A decaying RGB deposit on the ground, one field per logical world. Agents mark
+where they walk and beacons mark where they pass; three antennae read the cell
+under each tip. It is a storage buffer, not an image: deposits are integer
+`atomicAdd`, so the order agents are scheduled in cannot change the field.
+
+Constants and addressing live in `include/vkexp/simulation/TrailKernel.inl`,
+compiled by both languages. Decay is a half-life in seconds, applied as
+`exp(-rate * dt)`, so the field's lifetime does not depend on the step rate.
 
 ## Units
 

@@ -23,7 +23,8 @@ replay by step count -- while every physical quantity is expressed per second.
   by default, with an all-agents mode);
 - 7 forward light receptors with RGB and luminance channels;
 - 8 full-body tactile sectors distinguishing walls from agents;
-- `52 inputs -> 20 tanh neurons -> 8 outputs`;
+- 3 ground antennae reading the RGB of a decaying trail field;
+- `61 inputs -> 20 tanh neurons -> 8 outputs`;
 - outputs control left/right motors, RGB emission, emission intensity, and two
   recurrent memory cells;
 - inertial movement with linear/angular drag and hard linear/angular speed
@@ -241,6 +242,9 @@ On top of that, every scenario runs a 540-step trajectory regression:
 - **genome addressing.** Six genomes with distinctive motor biases; each agent
   must follow its own. This is the class of bug a single-agent parity test
   structurally cannot see.
+- **trail coupling.** A mark is written under one antenna tip and the agent has
+  to turn the way that tip is wired. A shader feeding every tip the same cell
+  passes every other test and fails this one.
 - **step-rate independence.** An agent is driven into a wall and held there for
   two simulated seconds at 30, 60, 120, 240 and 480 Hz. The accumulated penalty
   has to stay within 25% of the 60 Hz value while the step count changes 16x,

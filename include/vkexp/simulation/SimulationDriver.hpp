@@ -72,7 +72,11 @@ private:
     void uploadPopulation();
     void ensureGridCapacity();
     void updateGridDescriptors();
+    [[nodiscard]] float gridCellSize() const;
     void updateGridDimensions();
+    void updateTrailDimensions();
+    void ensureTrailCapacity();
+    void updateTrailDescriptors();
     [[nodiscard]] GpuStepParameters stepParameters(std::uint32_t generationStep) const;
     [[nodiscard]] std::vector<AgentState> makeInitialAgents() const;
 
@@ -88,21 +92,31 @@ private:
     BufferResource stepParameterBuffer_;
     BufferResource gridHeads_;
     BufferResource gridNext_;
+    BufferResource trailField_;
     UniqueDescriptorSetLayout stepDescriptorSetLayout_;
     UniqueDescriptorSetLayout gridClearDescriptorSetLayout_;
     UniqueDescriptorSetLayout gridBuildDescriptorSetLayout_;
+    UniqueDescriptorSetLayout trailDecayDescriptorSetLayout_;
+    UniqueDescriptorSetLayout trailDepositDescriptorSetLayout_;
     DescriptorAllocator descriptorAllocator_;
     std::array<VkDescriptorSet, 2> stepDescriptorSets_{};
     VkDescriptorSet gridClearDescriptorSet_{};
     std::array<VkDescriptorSet, 2> gridBuildDescriptorSets_{};
+    VkDescriptorSet trailDecayDescriptorSet_{};
+    std::array<VkDescriptorSet, 2> trailDepositDescriptorSets_{};
     ComputePipeline stepPipeline_;
     ComputePipeline gridClearPipeline_;
     ComputePipeline gridBuildPipeline_;
+    ComputePipeline trailDecayPipeline_;
+    ComputePipeline trailDepositPipeline_;
     std::vector<AgentState> agents_;
     std::vector<GpuStepParameters> stepParameterStaging_;
     std::uint32_t gridWidth_{};
     std::uint32_t gridCellsPerWorld_{};
+    std::uint32_t trailWidth_{};
+    std::uint32_t trailCellsPerWorld_{};
     bool hostUploadPending_{};
+    bool trailClearPending_{true};
 };
 
 } // namespace vkexp

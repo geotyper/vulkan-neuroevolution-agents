@@ -107,8 +107,7 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     if (ImGui::Combo("World size", &worldSize, worldSizes, 3)) {
         state_.physics.worldSize = static_cast<WorldSize>(worldSize);
         state_.physics.worldRadius = worldRadiusForSize(state_.physics.worldSize);
-        state_.physics.lightSensorRange =
-            std::min(state_.physics.lightSensorRange, state_.physics.worldRadius * 2.0F);
+        state_.physics.lightSensorRange = lightRangeForWorld(state_.physics);
         state_.controls.resetRequested = true;
     }
     int worldShape = static_cast<int>(state_.physics.worldShape);
@@ -239,6 +238,19 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SliderFloat("Wall penalty / s", &state_.physics.wallCollisionPenalty, 0.0F, 6.0F,
                        "%.2f");
     ImGui::Checkbox("Agent collisions", &state_.physics.agentCollisionsEnabled);
+    ImGui::SeparatorText("Trail field");
+    if (ImGui::Checkbox("Leave trails", &state_.physics.trailEnabled)) {
+        state_.controls.resetRequested = true;
+    }
+    ImGui::SliderFloat("Trail deposit / s", &state_.physics.trailDepositRate, 0.0F, 4.0F, "%.2f");
+    ImGui::SliderFloat("Beacon deposit / s", &state_.physics.beaconTrailDepositRate, 0.0F, 16.0F,
+                       "%.2f");
+    ImGui::SliderFloat("Trail half-life (s)", &state_.physics.trailHalfLife, 0.25F, 30.0F, "%.2f",
+                       ImGuiSliderFlags_Logarithmic);
+    ImGui::TextDisabled(
+        "%u x %u cells of %.0f cm per world", trailWidthForWorld(state_.physics.worldRadius),
+        trailWidthForWorld(state_.physics.worldRadius),
+        static_cast<double>(units::metresToCentimetres(trail::kernel::TrailCellSize)));
     ImGui::SeparatorText("Sensors");
     ImGui::SliderAngle("Sensor FOV", &state_.physics.sensorFieldOfView, 20.0F, 170.0F);
     ImGui::SliderFloat("Light range (m)", &state_.physics.lightSensorRange, 0.25F,

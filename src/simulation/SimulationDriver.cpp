@@ -28,6 +28,13 @@ struct alignas(16) GridBuildParameters {
 };
 static_assert(sizeof(GridBuildParameters) == 32);
 
+struct TrailDecayParameters {
+    std::uint32_t valueCount;
+    float survival;
+};
+
+static_assert(sizeof(TrailDecayParameters) == 8);
+
 void createStorageLayout(const VkDevice device, const std::uint32_t bindingCount,
                          UniqueDescriptorSetLayout& layout) {
     std::vector<VkDescriptorSetLayoutBinding> bindings(bindingCount);
@@ -84,13 +91,17 @@ void SimulationDriver::createStepResources() {
     updateWorldLayout();
     updateGridDimensions();
     ensureGridCapacity();
+    updateTrailDimensions();
+    ensureTrailCapacity();
     const VkDeviceSize gridLinkBytes = sizeof(std::int32_t) * agentCount;
     gridNext_.create(physicalDevice_, device_, {gridLinkBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
 
-    createStorageLayout(device_, 6, stepDescriptorSetLayout_);
+    createStorageLayout(device_, 7, stepDescriptorSetLayout_);
     createStorageLayout(device_, 1, gridClearDescriptorSetLayout_);
     createStorageLayout(device_, 3, gridBuildDescriptorSetLayout_);
-    descriptorAllocator_.create(device_, {5, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 19}}});
+    createStorageLayout(device_, 1, trailDecayDescriptorSetLayout_);
+    createStorageLayout(device_, 3, trailDepositDescriptorSetLayout_);
+    descriptorAllocator_.create(device_, {8, {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 29}}});
 
     for (std::uint32_t readIndex = 0; readIndex < 2; ++readIndex) {
         const VkBuffer readBuffer =
@@ -110,7 +121,19 @@ void SimulationDriver::createStepResources() {
                          gridNext_.size())
             .writeBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stepParameterBuffer_.buffer(), 0,
                          stepParameterBuffer_.size())
+            .writeBuffer(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
+                         trailField_.size())
             .update(device_, stepDescriptorSets_[readIndex]);
+
+        trailDepositDescriptorSets_[readIndex] =
+            descriptorAllocator_.allocate(trailDepositDescriptorSetLayout_.get());
+        DescriptorSetWriter{}
+            .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, readBuffer, 0, agentBytes)
+            .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
+                         trailField_.size())
+            .writeBuffer(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stepParameterBuffer_.buffer(), 0,
+                         stepParameterBuffer_.size())
+            .update(device_, trailDepositDescriptorSets_[readIndex]);
 
         gridBuildDescriptorSets_[readIndex] =
             descriptorAllocator_.allocate(gridBuildDescriptorSetLayout_.get());
@@ -122,6 +145,11 @@ void SimulationDriver::createStepResources() {
                          gridNext_.size())
             .update(device_, gridBuildDescriptorSets_[readIndex]);
     }
+    trailDecayDescriptorSet_ = descriptorAllocator_.allocate(trailDecayDescriptorSetLayout_.get());
+    DescriptorSetWriter{}
+        .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
+                     trailField_.size())
+        .update(device_, trailDecayDescriptorSet_);
     gridClearDescriptorSet_ = descriptorAllocator_.allocate(gridClearDescriptorSetLayout_.get());
     DescriptorSetWriter{}
         .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gridHeads_.buffer(), 0,
@@ -144,6 +172,18 @@ void SimulationDriver::createStepResources() {
             .shader(VKEXP_SHADER_DIR "/agent_grid_build.comp.spv")
             .addDescriptorSetLayout(gridBuildDescriptorSetLayout_.get())
             .addPushConstantRange(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(GridBuildParameters))
+            .build();
+    trailDecayPipeline_ =
+        ComputePipelineBuilder{physicalDevice_, device_}
+            .shader(VKEXP_SHADER_DIR "/trail_decay.comp.spv")
+            .addDescriptorSetLayout(trailDecayDescriptorSetLayout_.get())
+            .addPushConstantRange(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(TrailDecayParameters))
+            .build();
+    trailDepositPipeline_ =
+        ComputePipelineBuilder{physicalDevice_, device_}
+            .shader(VKEXP_SHADER_DIR "/trail_deposit.comp.spv")
+            .addDescriptorSetLayout(trailDepositDescriptorSetLayout_.get())
+            .addPushConstantRange(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(std::uint32_t))
             .build();
 
     state_.agents = {{agentBuffers_.read().buffer(), agentBuffers_.write().buffer()},
@@ -225,6 +265,7 @@ void SimulationDriver::uploadPopulation() {
     agentBuffers_.read().write(agents_.data(), agents_.size() * sizeof(AgentState));
     agentBuffers_.write().write(agents_.data(), agents_.size() * sizeof(AgentState));
     hostUploadPending_ = true;
+    trailClearPending_ = true;
 }
 
 void SimulationDriver::resetGeneration() {
@@ -297,9 +338,58 @@ GenerationSummary SimulationDriver::finishGeneration() {
     return summary;
 }
 
+float SimulationDriver::gridCellSize() const {
+    return gridCellSizeForWorld(config_.gridCellSize, state_.physics.worldRadius);
+}
+
+void SimulationDriver::updateTrailDimensions() {
+    trailWidth_ = trailWidthForWorld(state_.physics.worldRadius);
+    trailCellsPerWorld_ = trailWidth_ * trailWidth_;
+}
+
+void SimulationDriver::ensureTrailCapacity() {
+    // Sized for the largest arena so switching world size never reallocates or
+    // rebuilds descriptors, the same trade the neighbour grid makes.
+    const std::uint32_t maximumWidth = trailWidthForWorld(worldRadiusForSize(WorldSize::Large));
+    const VkDeviceSize requiredBytes = sizeof(std::uint32_t) * maximumWidth * maximumWidth *
+                                       trail::kernel::TrailChannels * state_.worlds.worldCount;
+    if (trailField_.size() >= requiredBytes) {
+        return;
+    }
+    trailField_.reset();
+    trailField_.create(
+        physicalDevice_, device_,
+        {requiredBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+    updateTrailDescriptors();
+}
+
+void SimulationDriver::updateTrailDescriptors() {
+    if (trailDecayDescriptorSet_ != VK_NULL_HANDLE) {
+        DescriptorSetWriter{}
+            .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
+                         trailField_.size())
+            .update(device_, trailDecayDescriptorSet_);
+    }
+    for (std::uint32_t readIndex = 0; readIndex < 2; ++readIndex) {
+        if (trailDepositDescriptorSets_[readIndex] == VK_NULL_HANDLE) {
+            continue;
+        }
+        const VkBuffer readBuffer =
+            readIndex == 0 ? agentBuffers_.read().buffer() : agentBuffers_.write().buffer();
+        DescriptorSetWriter{}
+            .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, readBuffer, 0,
+                         agentBuffers_.read().size())
+            .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
+                         trailField_.size())
+            .writeBuffer(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stepParameterBuffer_.buffer(), 0,
+                         stepParameterBuffer_.size())
+            .update(device_, trailDepositDescriptorSets_[readIndex]);
+    }
+}
+
 void SimulationDriver::updateGridDimensions() {
-    gridWidth_ = static_cast<std::uint32_t>(
-        std::ceil((state_.physics.worldRadius * 2.0F) / config_.gridCellSize));
+    gridWidth_ =
+        static_cast<std::uint32_t>(std::ceil((state_.physics.worldRadius * 2.0F) / gridCellSize()));
     gridCellsPerWorld_ = gridWidth_ * gridWidth_;
 }
 
@@ -323,11 +413,16 @@ void SimulationDriver::refreshGridForWorldSize() {
     updateWorldLayout();
     ensureGridCapacity();
     updateGridDimensions();
+    updateTrailDimensions();
+    ensureTrailCapacity();
 }
 
 void SimulationDriver::ensureGridCapacity() {
-    const auto maximumGridWidth = static_cast<std::uint32_t>(
-        std::ceil((worldRadiusForSize(WorldSize::Large) * 2.0F) / config_.gridCellSize));
+    // The scaled cell size makes this the same width in every world; it stays a
+    // Large-world calculation so a future unscaled cell size cannot under-allocate.
+    const float largestRadius = worldRadiusForSize(WorldSize::Large);
+    const auto maximumGridWidth = static_cast<std::uint32_t>(std::ceil(
+        (largestRadius * 2.0F) / gridCellSizeForWorld(config_.gridCellSize, largestRadius)));
     const VkDeviceSize requiredBytes =
         sizeof(std::int32_t) * maximumGridWidth * maximumGridWidth * state_.worlds.worldCount;
     if (gridHeads_.size() >= requiredBytes) {
@@ -366,36 +461,46 @@ GpuStepParameters SimulationDriver::stepParameters(const std::uint32_t generatio
     const ScenarioDefinition& scenario = scenarioDefinition(state_.physics.beaconScenario);
     const SimulationStep settings =
         resolveStepSettings(state_.physics, generationStep, state_.controls.stepsPerGeneration);
-    return {settings.deltaTime,
-            settings.worldRadius,
-            settings.thrust,
-            settings.turnAcceleration,
-            settings.linearDrag,
-            settings.angularDrag,
-            settings.sensorFieldOfView,
-            beaconArrivalRadius(settings),
-            settings.maximumSpeed,
-            settings.maximumAngularSpeed,
-            settings.lightSensorRange,
-            settings.lightExposure,
-            settings.collisionRestitution,
-            settings.contactStiffness,
-            config_.gridCellSize,
-            settings.wallCollisionPenalty,
-            state_.agents.agentCount,
-            neuro::packBrainLayout(scenario.brain),
-            config_.trialsPerGenome,
-            static_cast<std::uint32_t>(settings.worldShape),
-            gridWidth_,
-            gridCellsPerWorld_,
-            settings.agentCollisionsEnabled ? 1U : 0U,
-            settings.agentLightEnabled ? 1U : 0U,
-            static_cast<std::uint32_t>(settings.beaconScenario),
-            settings.beaconPhase,
-            settings.beaconPhaseChanged ? 1U : 0U,
-            scenario.beaconCount,
-            packFitnessWeights(settings.fitness),
-            scenario.gpuParameters(settings)};
+    return {
+        settings.deltaTime,
+        settings.worldRadius,
+        settings.thrust,
+        settings.turnAcceleration,
+        settings.linearDrag,
+        settings.angularDrag,
+        settings.sensorFieldOfView,
+        beaconArrivalRadius(settings),
+        settings.maximumSpeed,
+        settings.maximumAngularSpeed,
+        settings.lightSensorRange,
+        settings.lightExposure,
+        settings.collisionRestitution,
+        settings.contactStiffness,
+        gridCellSize(),
+        settings.wallCollisionPenalty,
+        state_.agents.agentCount,
+        neuro::packBrainLayout(scenario.brain),
+        config_.trialsPerGenome,
+        static_cast<std::uint32_t>(settings.worldShape),
+        gridWidth_,
+        gridCellsPerWorld_,
+        settings.agentCollisionsEnabled ? 1U : 0U,
+        settings.agentLightEnabled ? 1U : 0U,
+        static_cast<std::uint32_t>(settings.beaconScenario),
+        settings.beaconPhase,
+        settings.beaconPhaseChanged ? 1U : 0U,
+        scenario.beaconCount,
+        trail::kernel::TrailCellSize,
+        trail::kernel::trailSurvival(
+            trail::kernel::trailDecayRateForHalfLife(settings.trailHalfLife), settings.deltaTime),
+        settings.trailDepositRate * settings.deltaTime * trail::kernel::TrailFixedPointScale,
+        settings.beaconTrailDepositRate * settings.deltaTime * trail::kernel::TrailFixedPointScale,
+        trailWidth_,
+        trailCellsPerWorld_,
+        settings.trailEnabled ? 1U : 0U,
+        state_.worlds.agentsPerWorld,
+        packFitnessWeights(settings.fitness),
+        scenario.gpuParameters(settings)};
 }
 
 std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
@@ -417,6 +522,15 @@ std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
                      VK_ACCESS_2_HOST_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
+    if (trailClearPending_) {
+        vkCmdFillBuffer(commands, trailField_.buffer(), 0, trailField_.size(), 0);
+        cmdBufferBarrier(commands, trailField_.buffer(), VK_PIPELINE_STAGE_2_CLEAR_BIT,
+                         VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+                             VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        trailClearPending_ = false;
+    }
+
     if (hostUploadPending_) {
         for (const VkBuffer buffer : state_.agents.buffers) {
             cmdBufferBarrier(commands, buffer, VK_PIPELINE_STAGE_2_HOST_BIT,
@@ -431,7 +545,7 @@ std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
     }
 
     const GridBuildParameters gridParameters{state_.physics.worldRadius,
-                                             config_.gridCellSize,
+                                             gridCellSize(),
                                              state_.agents.agentCount,
                                              state_.worlds.worldCount,
                                              gridWidth_,
@@ -447,12 +561,24 @@ std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
     const DispatchSize buildGroups = checkedDispatchSize(
         physicalDevice_,
         {{state_.agents.agentCount, 1, 1}, {64, 1, 1}, sizeof(gridParameters), buildRanges});
-    const std::array<VkDeviceSize, 6> stepRanges{agentBuffers_.read().size(),
+    const std::array<VkDeviceSize, 7> stepRanges{agentBuffers_.read().size(),
                                                  agentBuffers_.write().size(),
                                                  genomeBuffer_.size(),
                                                  gridHeads_.size(),
                                                  gridNext_.size(),
-                                                 stepParameterBuffer_.size()};
+                                                 stepParameterBuffer_.size(),
+                                                 trailField_.size()};
+    const std::uint32_t trailValueCount =
+        trailCellsPerWorld_ * state_.worlds.worldCount * trail::kernel::TrailChannels;
+    const std::array<VkDeviceSize, 1> decayRanges{trailField_.size()};
+    const DispatchSize trailDecayGroups = checkedDispatchSize(
+        physicalDevice_,
+        {{trailValueCount, 1, 1}, {64, 1, 1}, sizeof(TrailDecayParameters), decayRanges});
+    const std::array<VkDeviceSize, 3> depositRanges{agentBuffers_.read().size(), trailField_.size(),
+                                                    stepParameterBuffer_.size()};
+    const DispatchSize trailDepositGroups = checkedDispatchSize(
+        physicalDevice_,
+        {{state_.agents.agentCount, 1, 1}, {64, 1, 1}, sizeof(std::uint32_t), depositRanges});
     const DispatchSize stepGroups = checkedDispatchSize(
         physicalDevice_,
         {{state_.agents.agentCount, 1, 1}, {64, 1, 1}, sizeof(std::uint32_t), stepRanges});
@@ -489,6 +615,35 @@ std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
         vkCmdDispatch(commands, buildGroups.x, 1, 1);
         cmdComputeWriteToComputeRead(commands, gridHeads_.buffer());
         cmdComputeWriteToComputeRead(commands, gridNext_.buffer());
+
+        // Trail: fade the whole field, then let every agent add to it, then run
+        // the step so all agents read a field nobody is still writing. Splitting
+        // deposit from the step is what keeps the reading order-independent --
+        // depositing inside agent_step would let some agents read a cell another
+        // agent had already marked this tick.
+        if (state_.physics.trailEnabled) {
+            const TrailDecayParameters decayParameters{trailValueCount,
+                                                       stepParameterStaging_[step].trailSurvival};
+            vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              trailDecayPipeline_.pipeline());
+            vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                    trailDecayPipeline_.layout(), 0, 1, &trailDecayDescriptorSet_,
+                                    0, nullptr);
+            vkCmdPushConstants(commands, trailDecayPipeline_.layout(), VK_SHADER_STAGE_COMPUTE_BIT,
+                               0, sizeof(decayParameters), &decayParameters);
+            vkCmdDispatch(commands, trailDecayGroups.x, 1, 1);
+            cmdComputeWriteToComputeRead(commands, trailField_.buffer());
+
+            vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              trailDepositPipeline_.pipeline());
+            const VkDescriptorSet depositSet = trailDepositDescriptorSets_[readIndex];
+            vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                    trailDepositPipeline_.layout(), 0, 1, &depositSet, 0, nullptr);
+            vkCmdPushConstants(commands, trailDepositPipeline_.layout(),
+                               VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(step), &step);
+            vkCmdDispatch(commands, trailDepositGroups.x, 1, 1);
+            cmdComputeWriteToComputeRead(commands, trailField_.buffer());
+        }
 
         vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, stepPipeline_.pipeline());
         const VkDescriptorSet stepSet = stepDescriptorSets_[readIndex];

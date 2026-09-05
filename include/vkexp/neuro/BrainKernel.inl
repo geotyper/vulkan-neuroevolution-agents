@@ -17,6 +17,8 @@ const uint BrainLightReceptorCount = 7u;
 const uint BrainLightChannels = 4u; // RGB + luminance
 const uint BrainTactileSectorCount = 8u;
 const uint BrainTactileChannels = 2u;     // wall + agent
+const uint BrainAntennaCount = 3u;        // left, centre, right ground feelers
+const uint BrainAntennaChannels = 3u;     // RGB of the trail under the tip
 const uint BrainSelfInputCount = 4u;      // speed, turn rate, energy, own signal
 const uint BrainTaskInputCount = 2u;      // cargo level, seeking-home flag
 const uint BrainRecurrentCount = 2u;      // memory cells, fed back as inputs
@@ -27,10 +29,14 @@ const uint BrainHiddenCapacity = 20u;
 
 const uint BrainLightBlockSize = BrainLightReceptorCount * BrainLightChannels;
 const uint BrainTactileBlockSize = BrainTactileSectorCount * BrainTactileChannels;
+const uint BrainAntennaBlockSize = BrainAntennaCount * BrainAntennaChannels;
 
+// The antenna block sits inside the reactive prefix, ahead of the task and
+// recurrent blocks that scenarios trim: every scenario can smell the ground.
 const uint BrainLightOffset = 0u;
 const uint BrainTactileOffset = BrainLightOffset + BrainLightBlockSize;
-const uint BrainSelfOffset = BrainTactileOffset + BrainTactileBlockSize;
+const uint BrainAntennaOffset = BrainTactileOffset + BrainTactileBlockSize;
+const uint BrainSelfOffset = BrainAntennaOffset + BrainAntennaBlockSize;
 const uint BrainTaskOffset = BrainSelfOffset + BrainSelfInputCount;
 const uint BrainRecurrentInputOffset = BrainTaskOffset + BrainTaskInputCount;
 const uint BrainInputCapacity = BrainRecurrentInputOffset + BrainRecurrentCount;
@@ -48,6 +54,10 @@ VKEXP_BRAIN_FN uint brainLightChannelIndex(uint receptor, uint channel) {
 
 VKEXP_BRAIN_FN uint brainTactileChannelIndex(uint sector, uint channel) {
     return BrainTactileOffset + sector * BrainTactileChannels + channel;
+}
+
+VKEXP_BRAIN_FN uint brainAntennaChannelIndex(uint antenna, uint channel) {
+    return BrainAntennaOffset + antenna * BrainAntennaChannels + channel;
 }
 
 // --- sensor response model ---------------------------------------------------
@@ -77,6 +87,29 @@ VKEXP_BRAIN_MATH_FN float brainReceptorResponse(float alignment) {
 
 VKEXP_BRAIN_MATH_FN float brainDistanceAttenuation(float normalizedDistanceSquared) {
     return 1.0f / (1.0f + normalizedDistanceSquared * BrainDistanceAttenuation);
+}
+
+// Trail deposits are unbounded -- a cell many agents stand on keeps growing --
+// so the reading is squashed into [0, 1) rather than clamped, which keeps a
+// strong scent distinguishable from an overwhelming one.
+VKEXP_BRAIN_MATH_FN float brainTrailResponse(float deposit) { return deposit / (1.0f + deposit); }
+
+// --- antenna geometry --------------------------------------------------------
+//
+// Where the ground feelers sit. They reach well past the body on purpose: the
+// three tips have to land in different trail cells for the reading to carry a
+// gradient at all, so their lateral spread is what sets the usable trail
+// resolution. At 12 cm and 0.7 rad the outer tips are 15 cm apart, which stays
+// legible on the 6 cm trail cells.
+
+const float BrainAntennaLength = 0.12f;    // m from the body centre
+const float BrainAntennaHalfSpread = 0.7f; // rad from the heading
+
+// Angle of one antenna relative to the agent's heading.
+VKEXP_BRAIN_MATH_FN float brainAntennaAngle(uint antenna) {
+    const float fraction =
+        BrainAntennaCount > 1u ? float(antenna) / float(BrainAntennaCount - 1u) - 0.5f : 0.0f;
+    return fraction * 2.0f * BrainAntennaHalfSpread;
 }
 
 VKEXP_BRAIN_MATH_FN float brainLuminance(float red, float green, float blue) {
@@ -113,11 +146,15 @@ VKEXP_BRAIN_FN uint brainOutputBiasIndex(uint base, uint inputCount, uint hidden
 
 // --- active shape packed into one uint for the GPU ---------------------------
 
+// stride | inputs | hidden | outputs, packed into the one uint the shader reads.
+// The input and hidden fields are 7 bits rather than 6: the antenna block put the
+// capacity at 61, two short of a 6-bit ceiling, and a sensor suite that cannot
+// grow is not a preset. 12 + 7 + 7 + 5 = 31 bits, one still spare.
 const uint BrainStrideMask = 0xfffu;
 const uint BrainInputShift = 12u;
-const uint BrainHiddenShift = 18u;
-const uint BrainOutputShift = 24u;
-const uint BrainCountMask = 0x3fu;
+const uint BrainHiddenShift = 19u;
+const uint BrainOutputShift = 26u;
+const uint BrainCountMask = 0x7fu;
 const uint BrainOutputCountMask = 0x1fu;
 
 VKEXP_BRAIN_FN uint brainPackLayout(uint genomeStride, uint inputCount, uint hiddenCount,

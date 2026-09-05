@@ -17,6 +17,8 @@ struct Topology {
     static constexpr std::size_t lightChannelsPerReceptor = kernel::BrainLightChannels;
     static constexpr std::size_t tactileSectorCount = kernel::BrainTactileSectorCount;
     static constexpr std::size_t tactileChannelsPerSector = kernel::BrainTactileChannels;
+    static constexpr std::size_t antennaCount = kernel::BrainAntennaCount;
+    static constexpr std::size_t antennaChannelsPerTip = kernel::BrainAntennaChannels;
     static constexpr std::size_t selfInputCount = kernel::BrainSelfInputCount;
     static constexpr std::size_t taskInputCount = kernel::BrainTaskInputCount;
     static constexpr std::size_t recurrentMemoryCount = kernel::BrainRecurrentCount;
@@ -29,6 +31,7 @@ struct Topology {
 
     // Offsets into the input vector, shared with the shader's sensor pass.
     static constexpr std::size_t tactileOffset = kernel::BrainTactileOffset;
+    static constexpr std::size_t antennaOffset = kernel::BrainAntennaOffset;
     static constexpr std::size_t selfOffset = kernel::BrainSelfOffset;
     static constexpr std::size_t taskOffset = kernel::BrainTaskOffset;
     static constexpr std::size_t recurrentInputOffset = kernel::BrainRecurrentInputOffset;
