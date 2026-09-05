@@ -41,6 +41,10 @@ struct SimulationDisplay {
     bool agents{true};
     bool beacons{true};
     bool trail{true};
+    // Discs read as a track, squares tile the cell exactly and show the grid the
+    // field really is. Both are worth having in front of you, so this stays a
+    // switch rather than a decision.
+    bool roundTrailMarks{true};
 };
 
 struct SimulationWorlds {

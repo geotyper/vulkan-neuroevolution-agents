@@ -40,8 +40,8 @@ layout(push_constant) uniform DrawParameters {
     uint trailWidth;
     float trailRenderWidth;
     float trailCellSize;
+    uint trailRoundMarks;
     uint reserved0;
-    uint reserved1;
     ScenarioParameters scenario;
 } params;
 
@@ -78,17 +78,25 @@ void main() {
         const uint cell = uint(gl_InstanceIndex);
         const uint cellX = cell % params.trailWidth;
         const uint cellY = cell / params.trailWidth;
-        // A disc centred in the cell rather than the cell itself. The mark still
-        // lives in exactly one cell; this only decides how much of that cell is
-        // painted, so a track can be drawn as narrow as the body that left it.
-        // Below about 1.4 cells the discs stop touching their diagonal
+        // The mark still lives in exactly one cell; the shape and the fill only
+        // decide how much of that cell is painted. A disc reads as a track, a
+        // square tiles the cell exactly and shows the grid for what it is.
+        // Below roughly 1.4 cells of fill neither shape reaches its diagonal
         // neighbours and the path reads as dots -- that is the grid showing
-        // through, not missing deposits, and mode 6 is the answer to it.
+        // through, not missing deposits, and a finer resolution is the answer.
         const float fill = clamp(params.trailRenderWidth, 0.02, 1.6);
-        const vec2 cellCentre = (vec2(float(cellX), float(cellY)) + vec2(0.5)) * params.trailCellSize -
-                                vec2(params.worldRadius);
-        const vec2 cellWorld =
-            cellCentre + circleVertex(gl_VertexIndex, fill * params.trailCellSize * 0.5, 8);
+        const vec2 cellCentre =
+            (vec2(float(cellX), float(cellY)) + vec2(0.5)) * params.trailCellSize -
+            vec2(params.worldRadius);
+        vec2 markOffset;
+        if (params.trailRoundMarks != 0u) {
+            markOffset = circleVertex(gl_VertexIndex, fill * params.trailCellSize * 0.5, 8);
+        } else {
+            const vec2 corners[6] = vec2[](vec2(-0.5, -0.5), vec2(0.5, -0.5), vec2(0.5, 0.5),
+                                           vec2(-0.5, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
+            markOffset = corners[gl_VertexIndex] * fill * params.trailCellSize;
+        }
+        const vec2 cellWorld = cellCentre + markOffset;
 
         const uint cellsPerWorld = params.trailWidth * params.trailWidth;
         vec3 deposit;

@@ -26,12 +26,16 @@ struct DrawParameters {
     std::uint32_t trailWidth{};
     float trailRenderWidth{};
     float trailCellSize{};
+    std::uint32_t trailRoundMarks{};
     std::uint32_t reserved0{};
-    std::uint32_t reserved1{};
     ScenarioParameterBlock scenario;
 };
 // Still inside the 128 bytes Vulkan guarantees for maxPushConstantsSize; the
 // step parameters ran out of that budget, this has not.
+// Segments in a round trail mark. Shared with the vertex shader's fan, which is
+// why it is not written twice.
+constexpr std::uint32_t trailDiscSegments = 8;
+
 static_assert(sizeof(DrawParameters) == 112);
 static_assert(offsetof(DrawParameters, scenario) == 64);
 
@@ -221,7 +225,7 @@ void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, con
         state_.trail.width,
         state_.physics.trailRenderWidth,
         state_.physics.trailCellSize,
-        0U,
+        state_.display.roundTrailMarks ? 1U : 0U,
         0U,
         scenarioDefinition(settings.beaconScenario).gpuParameters(settings)};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
@@ -279,7 +283,11 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
     // The field goes on top of the arena and under everything that moves, so a
     // path reads as ground rather than as another agent.
     if (state_.display.trail && state_.physics.trailEnabled && state_.trail.cellsPerWorld > 0) {
-        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 5, 0.85F, 8 * 3,
+        // A disc needs a fan of triangles, a square needs two: the vertex count
+        // is the only thing that differs on this side.
+        const std::uint32_t markVertices =
+            state_.display.roundTrailMarks ? trailDiscSegments * 3 : 6;
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 5, 0.85F, markVertices,
              state_.trail.cellsPerWorld);
     }
     if (state_.display.agents) {

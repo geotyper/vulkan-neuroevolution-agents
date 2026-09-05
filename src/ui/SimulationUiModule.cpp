@@ -288,6 +288,9 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Checkbox("Agents", &state_.display.agents);
     ImGui::SameLine();
     ImGui::Checkbox("Beacons", &state_.display.beacons);
+    ImGui::Checkbox("Round trail marks", &state_.display.roundTrailMarks);
+    ImGui::SetItemTooltip("Off draws each cell as a square, which tiles exactly and shows the "
+                          "grid the field actually is.");
     ImGui::SeparatorText("Sensors");
     ImGui::SliderAngle("Sensor FOV", &state_.physics.sensorFieldOfView, 20.0F, 170.0F);
     ImGui::SliderFloat("Light range (m)", &state_.physics.lightSensorRange, 0.25F,
