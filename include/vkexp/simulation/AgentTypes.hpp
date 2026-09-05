@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vkexp/worlds/ScenarioKernel.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -30,7 +32,8 @@ enum class BeaconScenario : std::uint32_t {
 inline constexpr std::size_t beaconScenarioCount = 5;
 
 inline constexpr float smallWorldRadius = 1.84F;
-inline constexpr float beaconVisualRadius = 0.060F;
+// Single source of truth shared with the vertex shader.
+inline const float beaconVisualRadius = worlds::kernel::BeaconVisualRadius;
 inline constexpr std::uint32_t minimumAgentsPerWorld = 10;
 
 [[nodiscard]] constexpr float worldRadiusForSize(const WorldSize size) {
@@ -167,7 +170,7 @@ struct SimulationStep {
     bool agentLightEnabled{true};
 };
 
-[[nodiscard]] constexpr float beaconArrivalRadius(const SimulationStep& settings) {
+[[nodiscard]] inline float beaconArrivalRadius(const SimulationStep& settings) {
     return beaconVisualRadius * settings.arrivalRadiusMultiplier;
 }
 

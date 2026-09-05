@@ -41,7 +41,7 @@ layout(push_constant) uniform DrawParameters {
 
 layout(location = 0) out vec4 color;
 
-const float BeaconRadius = 0.060;
+
 
 vec2 circleVertex(uint vertex, float radius, uint segmentCount) {
     const uint corner = vertex % 3;
@@ -82,7 +82,7 @@ void main() {
     } else if (params.mode == 1) {
         world = scenarioBeaconPosition(params.beaconScenario, agent, gl_InstanceIndex,
                                        params.beaconPhase, params.worldRadius, params.scenario) +
-                circleVertex(gl_VertexIndex, BeaconRadius, 16);
+                circleVertex(gl_VertexIndex, BeaconVisualRadius, 16);
         color = vec4(scenarioBeaconColor(params.beaconScenario, gl_InstanceIndex,
                                          params.beaconPhase, trial),
                      params.opacity);

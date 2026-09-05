@@ -12,6 +12,9 @@
    source file, a shader pair and a registry line.
 3c. Anything the CPU and the GPU must agree on is either shared source or a
    runtime parameter -- never a constant written twice.
+3d. The CPU path exists to inspect one agent and to build the network from the
+   same declaration, not to mirror the GPU. Parallel behaviour is verified by
+   tests that need many agents, not by a second implementation.
 4. Add one evolutionary pressure at a time and keep deterministic replay tests.
 5. Prefer measurable behavioral milestones over adding simulation features in
    parallel.
@@ -102,6 +105,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [ ] asynchronous double-buffered generation readback;
 - [ ] optional GPU selection/mutation backend;
 - [x] scenario-owned active dense topology descriptors and recurrent outputs;
+- [x] one network preset driving the CPU evaluator, the shader and the tests;
 - [ ] pluggable multi-layer/recurrent evaluator implementations;
 - [x] scenario registry and data-driven experiment configuration;
 - [x] batch/headless evolution executable;
@@ -124,6 +128,18 @@ for reward in 0.0 0.25 0.75; do
                    --tracking-reward "$reward" --csv "runs/tracking-$reward.csv"
 done
 ```
+
+## Changing the sensor suite or the brain
+
+`include/vkexp/neuro/BrainKernel.inl` is the network preset. It declares how many
+receptors, tactile sectors, self, task and recurrent inputs there are, how wide
+the hidden layer is, and what the outputs mean; every offset, the input capacity,
+the genome size and the packed GPU layout are derived from those numbers.
+
+Both languages compile it, so raising `BrainSelfInputCount` from 4 to 5 moves the
+CPU evaluator, the sensor sampler, the compute shader and the tests together, and
+nothing else needs editing. The block offsets are asserted to tile the input
+vector without gaps, so a sensor block that no longer fits fails loudly.
 
 ## Adding a scenario
 

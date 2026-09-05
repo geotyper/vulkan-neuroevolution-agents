@@ -1,4 +1,5 @@
 #include "vkexp/compute/HeadlessComputeContext.hpp"
+#include "vkexp/neuro/BrainKernel.hpp"
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/simulation/AgentTypes.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
@@ -452,6 +453,74 @@ void runTrajectoryParity(vkexp::HeadlessComputeContext& context,
     }
 }
 
+// Genome addressing probe.
+//
+// This is the class of bug the CPU mirror used to guard: a wrong genomeStride or
+// base offset makes an agent read another genome's weights, which a parity test
+// on a single agent cannot see. Each genome gets a distinctive motor bias, and
+// every agent must drive exactly as its own genome says.
+void runGenomeAddressingProbe(vkexp::HeadlessComputeContext& context) {
+    constexpr std::uint32_t genomeCount = 6;
+    constexpr std::uint32_t trialsPerGenome = 2;
+    constexpr std::uint32_t agentCount = genomeCount * trialsPerGenome;
+    namespace kernel = vkexp::neuro::kernel;
+
+    const vkexp::SimulationStep settings{};
+    const vkexp::neuro::BrainShape brain = vkexp::scenarioDefinition(settings.beaconScenario).brain;
+    const auto inputCount = static_cast<kernel::uint>(brain.inputCount);
+    const auto hiddenCount = static_cast<kernel::uint>(brain.hiddenCount);
+    const auto outputCount = static_cast<kernel::uint>(brain.outputCount);
+
+    // Genome g biases both motors so that tanh(bias) is a value unique to g.
+    std::vector<vkexp::neuro::Weights> genomes(genomeCount);
+    std::array<float, genomeCount> expectedDrive{};
+    for (std::uint32_t genome = 0; genome < genomeCount; ++genome) {
+        const float bias = -1.0F + 0.4F * static_cast<float>(genome);
+        for (const kernel::uint motor :
+             {kernel::BrainMotorLeftOutput, kernel::BrainMotorRightOutput}) {
+            genomes[genome][kernel::brainOutputBiasIndex(0u, inputCount, hiddenCount, outputCount,
+                                                         motor)] = bias;
+        }
+        expectedDrive[genome] = std::tanh(bias);
+    }
+
+    StepHarness harness{context, agentCount, genomeCount, 1, 1, settings.worldRadius};
+    harness.genomes.write(genomes.data(), genomes.size() * sizeof(vkexp::neuro::Weights));
+
+    std::vector<vkexp::AgentState> agents(agentCount);
+    for (std::uint32_t index = 0; index < agentCount; ++index) {
+        agents[index].pose = {0.0F, 0.0F, 0.0F, 0.022F};
+        agents[index].motion.w = 1.0F;
+        agents[index].target = {settings.worldRadius * 0.7F, 0.0F,
+                                static_cast<float>(index % trialsPerGenome), 0.0F};
+        agents[index].metrics = {1.0F, 1.0F, 0.0F, 0.0F};
+    }
+    harness.buildGrid(agents, settings.worldRadius);
+    harness.inputAgents.write(agents.data(), agents.size() * sizeof(vkexp::AgentState));
+    vkexp::GpuStepParameters parameters = makeStepParameters(
+        settings, agentCount, trialsPerGenome, harness.gridWidth(), harness.gridCellsPerWorld());
+    parameters.agentCollisionsEnabled = 0;
+    parameters.agentLightEnabled = 0;
+    harness.stepParameters.write(&parameters, sizeof(parameters));
+    harness.dispatch(0);
+    harness.outputAgents.read(agents.data(), agents.size() * sizeof(vkexp::AgentState));
+
+    for (std::uint32_t index = 0; index < agentCount; ++index) {
+        const std::uint32_t genome = index / trialsPerGenome;
+        // Straight-line drive for one step, before drag and the speed clamp:
+        // both motors share the bias, so forward speed follows tanh(bias).
+        const float drive = expectedDrive[genome] * settings.thrust * settings.deltaTime *
+                            std::exp(-settings.linearDrag * settings.deltaTime);
+        if (std::abs(agents[index].motion.x - drive) > 0.001F) {
+            throw std::runtime_error("Genome addressing probe: agent " + std::to_string(index) +
+                                     " should follow genome " + std::to_string(genome) +
+                                     " (expected drive " + std::to_string(drive) + ", got " +
+                                     std::to_string(agents[index].motion.x) +
+                                     "); genomeStride or base offset is wrong");
+        }
+    }
+}
+
 // Many agents in one world exercise the shared spatial grid, where a race or an
 // uninitialised read would show up as run-to-run variation rather than as a
 // CPU/GPU mismatch.
@@ -600,14 +669,22 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool 
     }
     initial[1].signal = {1.0F, 0.0F, 0.0F, 1.0F};
 
-    std::array<vkexp::neuro::Weights, agentCount> genomes{};
-    constexpr std::size_t centerRedInput = 3 * vkexp::neuro::Topology::lightChannelsPerReceptor;
-    constexpr vkexp::neuro::BrainShape brain{48, 20, 6};
-    constexpr std::size_t outputWeights = brain.inputCount * brain.hiddenCount + brain.hiddenCount;
-    genomes[0][centerRedInput] = 4.0F;
-    genomes[0][outputWeights + 2 * brain.hiddenCount] = 4.0F;
-
+    // Sparse probe: wire the forward-facing red receptor straight through one
+    // hidden neuron to the red emission output. Indices come from the shared
+    // preset, so this keeps working when the sensor suite changes.
+    namespace kernel = vkexp::neuro::kernel;
     const vkexp::SimulationStep settings{};
+    const vkexp::neuro::BrainShape brain = vkexp::scenarioDefinition(settings.beaconScenario).brain;
+    const auto inputCount = static_cast<kernel::uint>(brain.inputCount);
+    const auto hiddenCount = static_cast<kernel::uint>(brain.hiddenCount);
+    const kernel::uint centerReceptor = kernel::BrainLightReceptorCount / 2u;
+    const kernel::uint centerRedInput = kernel::brainLightChannelIndex(centerReceptor, 0u);
+
+    std::array<vkexp::neuro::Weights, agentCount> genomes{};
+    genomes[0][kernel::brainHiddenWeightIndex(0u, inputCount, 0u, centerRedInput)] = 4.0F;
+    genomes[0][kernel::brainOutputWeightIndex(0u, inputCount, hiddenCount,
+                                              kernel::BrainSignalColorOutput, 0u)] = 4.0F;
+
     const std::uint32_t worldCount = isolatedWorlds ? 2U : 1U;
     StepHarness harness{context, agentCount, agentCount, worldCount, 1, settings.worldRadius};
     harness.genomes.write(genomes.data(), sizeof(genomes));
@@ -663,6 +740,7 @@ int run() {
     runTrajectoryParity(context, vkexp::BeaconScenario::Rotating, 540);
     runTrajectoryParity(context, vkexp::BeaconScenario::RandomMovement, 540);
     runTrajectoryParity(context, vkexp::BeaconScenario::ForageHome, 540);
+    runGenomeAddressingProbe(context);
     runMultiAgentDeterminism(context);
     std::cout << "Headless compute, CPU/GPU parity and determinism tests passed on "
               << context.deviceName() << '\n';

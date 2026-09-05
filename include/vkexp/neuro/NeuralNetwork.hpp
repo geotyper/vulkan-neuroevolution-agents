@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vkexp/neuro/BrainKernel.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -7,23 +9,30 @@
 
 namespace vkexp::neuro {
 
+// C++ view of the network preset in BrainKernel.inl, which the shaders compile
+// from the same source. Nothing here restates a number: change the preset and
+// both sides follow.
 struct Topology {
-    static constexpr std::size_t lightReceptorCount = 7;
-    static constexpr std::size_t lightChannelsPerReceptor = 4; // RGB + luminance
-    static constexpr std::size_t tactileSectorCount = 8;
-    static constexpr std::size_t tactileChannelsPerSector = 2; // wall + agent
-    static constexpr std::size_t selfInputCount = 4;
-    static constexpr std::size_t taskInputCount = 2; // cargo level + seeking-home state
-    static constexpr std::size_t recurrentMemoryCount = 2;
-    static constexpr std::size_t inputCount = lightReceptorCount * lightChannelsPerReceptor +
-                                              tactileSectorCount * tactileChannelsPerSector +
-                                              selfInputCount + taskInputCount +
-                                              recurrentMemoryCount;
-    static constexpr std::size_t hiddenCount = 20;
-    static constexpr std::size_t actuatorOutputCount = 6;
-    static constexpr std::size_t outputCount = actuatorOutputCount + recurrentMemoryCount;
-    static constexpr std::size_t weightCount =
-        inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + outputCount;
+    static constexpr std::size_t lightReceptorCount = kernel::BrainLightReceptorCount;
+    static constexpr std::size_t lightChannelsPerReceptor = kernel::BrainLightChannels;
+    static constexpr std::size_t tactileSectorCount = kernel::BrainTactileSectorCount;
+    static constexpr std::size_t tactileChannelsPerSector = kernel::BrainTactileChannels;
+    static constexpr std::size_t selfInputCount = kernel::BrainSelfInputCount;
+    static constexpr std::size_t taskInputCount = kernel::BrainTaskInputCount;
+    static constexpr std::size_t recurrentMemoryCount = kernel::BrainRecurrentCount;
+    static constexpr std::size_t inputCount = kernel::BrainInputCapacity;
+    static constexpr std::size_t hiddenCount = kernel::BrainHiddenCapacity;
+    static constexpr std::size_t actuatorOutputCount = kernel::BrainActuatorOutputCount;
+    static constexpr std::size_t outputCount = kernel::BrainOutputCapacity;
+    static constexpr std::size_t weightCount = kernel::brainWeightCount(
+        kernel::BrainInputCapacity, kernel::BrainHiddenCapacity, kernel::BrainOutputCapacity);
+
+    // Offsets into the input vector, shared with the shader's sensor pass.
+    static constexpr std::size_t tactileOffset = kernel::BrainTactileOffset;
+    static constexpr std::size_t selfOffset = kernel::BrainSelfOffset;
+    static constexpr std::size_t taskOffset = kernel::BrainTaskOffset;
+    static constexpr std::size_t recurrentInputOffset = kernel::BrainRecurrentInputOffset;
+    static constexpr std::size_t recurrentOutputOffset = kernel::BrainRecurrentOutputOffset;
 };
 
 // A scenario selects an active dense-network shape inside the fixed-capacity genome.
@@ -34,7 +43,9 @@ struct BrainShape {
     std::size_t outputCount{};
 
     [[nodiscard]] constexpr std::size_t weightCount() const {
-        return inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + outputCount;
+        return kernel::brainWeightCount(static_cast<kernel::uint>(inputCount),
+                                        static_cast<kernel::uint>(hiddenCount),
+                                        static_cast<kernel::uint>(outputCount));
     }
 
     [[nodiscard]] constexpr bool fitsCapacity() const {
@@ -48,37 +59,40 @@ struct BrainShape {
 inline constexpr BrainShape maximumBrainShape{Topology::inputCount, Topology::hiddenCount,
                                               Topology::outputCount};
 
-inline constexpr std::uint32_t brainStrideMask = 0x00000fffU;
-inline constexpr std::uint32_t brainInputShift = 12U;
-inline constexpr std::uint32_t brainHiddenShift = 18U;
-inline constexpr std::uint32_t brainOutputShift = 24U;
-
 [[nodiscard]] constexpr std::uint32_t
 packBrainLayout(const BrainShape shape, const std::size_t genomeStride = Topology::weightCount) {
-    return static_cast<std::uint32_t>(genomeStride) |
-           (static_cast<std::uint32_t>(shape.inputCount) << brainInputShift) |
-           (static_cast<std::uint32_t>(shape.hiddenCount) << brainHiddenShift) |
-           (static_cast<std::uint32_t>(shape.outputCount) << brainOutputShift);
+    return kernel::brainPackLayout(
+        static_cast<kernel::uint>(genomeStride), static_cast<kernel::uint>(shape.inputCount),
+        static_cast<kernel::uint>(shape.hiddenCount), static_cast<kernel::uint>(shape.outputCount));
 }
 
 [[nodiscard]] constexpr std::size_t brainGenomeStride(const std::uint32_t layout) {
-    return layout & brainStrideMask;
+    return kernel::brainLayoutStride(layout);
 }
 
 [[nodiscard]] constexpr BrainShape brainShape(const std::uint32_t layout) {
-    return {(layout >> brainInputShift) & 0x3fU, (layout >> brainHiddenShift) & 0x3fU,
-            (layout >> brainOutputShift) & 0x1fU};
+    return {kernel::brainLayoutInputCount(layout), kernel::brainLayoutHiddenCount(layout),
+            kernel::brainLayoutOutputCount(layout)};
 }
 
 static_assert(maximumBrainShape.fitsCapacity());
-static_assert(Topology::weightCount <= brainStrideMask);
+// The preset has to stay expressible in the packed layout the GPU receives.
+static_assert(Topology::weightCount <= kernel::BrainStrideMask,
+              "Genome stride no longer fits the packed brain layout");
+static_assert(Topology::inputCount <= kernel::BrainCountMask,
+              "Input count no longer fits the packed brain layout");
+static_assert(Topology::hiddenCount <= kernel::BrainCountMask,
+              "Hidden count no longer fits the packed brain layout");
+static_assert(Topology::outputCount <= kernel::BrainOutputCountMask,
+              "Output count no longer fits the packed brain layout");
 
 using Inputs = std::array<float, Topology::inputCount>;
 using Outputs = std::array<float, Topology::outputCount>;
 using Weights = std::array<float, Topology::weightCount>;
 
-// Reference implementation for tests, tools, and deterministic inspection.
-// The GPU shader deliberately uses the same flattened weight layout.
+// Single-network evaluator for tests, inspection and champion replay. It builds
+// the network from the same genome addressing the shader uses, so it is a way to
+// look inside one brain rather than a second implementation of the layout.
 [[nodiscard]] Outputs evaluate(std::span<const float, Topology::weightCount> weights,
                                const Inputs& inputs, BrainShape shape = maximumBrainShape);
 

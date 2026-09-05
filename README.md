@@ -101,7 +101,9 @@ vulkan_neuroevolution_agents (windowed composition root)
 vkneuro_headless             (batch composition root)
   |
   +-- vkneuro_domain          no Vulkan dependency
-  |     NeuralNetwork         flattened brain contract + CPU evaluator
+  |     neuro/
+  |       BrainKernel.inl     network preset compiled by C++ and GLSL alike
+  |       NeuralNetwork       C++ view of the preset + single-network evaluator
   |     worlds/
   |       ScenarioKernel.inl  scenario math compiled by C++ and GLSL alike
   |       WorldScenario       scenario contract + validated registry
@@ -133,9 +135,12 @@ The shared contracts are small:
 - `SimulationState` carries controls, statistics, the published agent-buffer
   view, and the published viewport image;
 - `AgentState` is an explicitly checked 176-byte std430-compatible structure;
-- `Topology` defines the maximum 1228-float genome capacity, while every
-  `ScenarioDefinition` selects its active input/hidden/output counts and fitness
-  function; the CPU evaluator and GLSL shader use the same packed layout;
+- `BrainKernel.inl` is the network preset: sensor block sizes, hidden width and
+  output meanings, from which the input capacity, every block offset, the genome
+  size and the packed GPU layout are derived. Both languages compile it, so the
+  CPU evaluator, the sensor sampler and the shader build the same network from
+  one declaration; `Topology` is the C++ view of it and restates nothing. Each
+  `ScenarioDefinition` then selects its active input/hidden/output counts;
 - module order in `main.cpp` is the composition graph: compute publishes the
   buffer, rendering reads it, and ImGui composites the viewport;
 - `GpuStepParameters` carries only what every scenario needs, plus a 48-byte
@@ -157,6 +162,20 @@ UI replace its counterpart without changing the application lifecycle.
 `SimulationDriver` holds the experiment; `SimulationModule` only maps frame
 callbacks onto it. The batch runner drives the same driver from an
 `ImmediateContext`, so a sweep and the window run identical code.
+
+### Where the CPU path fits
+
+The CPU code is not a mirror of the shader. It exists to build the network from
+the shared preset, to score a finished generation, and to step and inspect a
+single agent -- which the GPU cannot do usefully for 2048 of them at once. What
+genuinely differs between the two, the parallel substrate, is verified by tests
+that need many agents:
+
+- `runGenomeAddressingProbe` gives six genomes distinctive motor biases and
+  checks every agent follows its own; a wrong genome stride or base offset is
+  invisible to a single-agent parity test.
+- `runMultiAgentDeterminism` and `runAgentInteractionTest` cover the shared
+  spatial grid, barriers and logical-world isolation.
 
 ### Adding a scenario
 
@@ -200,16 +219,22 @@ On top of that, every scenario runs a 540-step trajectory regression:
   alternating phase never flipped, fails rather than passing vacuously.
 - **determinism.** 192 agents sharing one spatial grid are stepped twice; the
   results must be bit-identical, which is where a grid race would surface.
+- **genome addressing.** Six genomes with distinctive motor biases; each agent
+  must follow its own. This is the class of bug a single-agent parity test
+  structurally cannot see.
 
 Pure CPU tests cover world scaling, beacon layouts, logical-world partition
 mapping, channel mapping, weight layout, neural evaluation, elite preservation,
 scenario parameter packing, resolved step settings, genome archive round-trips
 including corruption and truncation rejection, and reusable compute validation.
-Two of them guard the contracts this architecture rests on: every registered
-scenario is checked for registry order, a CLI key, a brain that fits the genome,
-a declared beacon count that matches what it reports, and a step that survives
-its own hooks; and the shared kernel is pinned on the C++ side so a change to
-`ScenarioKernel.inl` cannot slip through on a machine without a GPU.
+Several guard the contracts this architecture rests on: every registered scenario
+is checked for registry order, a CLI key, a brain that fits the genome, a declared
+beacon count that matches what it reports, and a step that survives its own hooks;
+the shared scenario kernel is pinned on the C++ side so a change to
+`ScenarioKernel.inl` cannot slip through on a machine without a GPU; and the brain
+preset is checked by derivation rather than by snapshot -- the sensor blocks must
+tile the input vector without gaps or overlaps, so adding a sensor stays a
+one-line edit instead of a test rewrite.
 
 ## Build and run
 
@@ -275,6 +300,8 @@ The next world feature should enter through a focused contract:
 
 - a new scenario adds one `.cpp`, two `.glsl` files and a registry line; it does
   not touch the shared step parameters, the simulation, the scoring or the UI;
+- a new sensor channel is a line in the network preset; offsets, genome size and
+  both implementations follow;
 - walls and occlusion extend sensor/world queries;
 - richer recurrent cells or gated memory can extend the two-value recurrent state;
 - internal walls and occlusion extend grid-backed world queries;

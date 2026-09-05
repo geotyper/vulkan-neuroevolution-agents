@@ -1,5 +1,7 @@
 #include "vkexp/simulation/Sensors.hpp"
 
+#include "vkexp/neuro/BrainKernel.hpp"
+
 #include "vkexp/worlds/WorldScenario.hpp"
 
 #include <algorithm>
@@ -22,11 +24,6 @@ float component(const Float4& value, const std::size_t index) {
     }
 }
 
-float rangeFalloff(const float distance, const float range) {
-    const float fade = std::clamp((range - distance) / (range * 0.25F), 0.0F, 1.0F);
-    return fade * fade * (3.0F - 2.0F * fade);
-}
-
 } // namespace
 
 neuro::Inputs sampleAgentInputs(const AgentState& agent, const SimulationStep& settings) {
@@ -44,52 +41,55 @@ neuro::Inputs sampleAgentInputs(const AgentState& agent, const SimulationStep& s
         const float lightY = dy / distance;
         const float normalizedDistanceSquared =
             distanceSquared / (settings.worldRadius * settings.worldRadius);
-        const float attenuation = 1.0F / (1.0F + normalizedDistanceSquared * 2.0F);
-        const float falloff = rangeFalloff(distance, settings.lightSensorRange);
+        const float attenuation =
+            neuro::kernel::brainDistanceAttenuation(normalizedDistanceSquared);
+        const float falloff = neuro::kernel::brainRangeFalloff(distance, settings.lightSensorRange);
         for (std::size_t receptor = 0; receptor < neuro::Topology::lightReceptorCount; ++receptor) {
             const float fraction = static_cast<float>(receptor) /
                                    static_cast<float>(neuro::Topology::lightReceptorCount - 1);
             const float sensorAngle = agent.pose.z + (fraction - 0.5F) * settings.sensorFieldOfView;
             const float alignment =
                 std::max(std::cos(sensorAngle) * lightX + std::sin(sensorAngle) * lightY, 0.0F);
-            const float intensity = std::pow(alignment, 12.0F) * attenuation * falloff;
+            const float intensity =
+                neuro::kernel::brainReceptorResponse(alignment) * attenuation * falloff;
             radiance[receptor][0] += beacon.color.x * intensity;
             radiance[receptor][1] += beacon.color.y * intensity;
             radiance[receptor][2] += beacon.color.z * intensity;
         }
     }
 
-    for (std::size_t receptor = 0; receptor < neuro::Topology::lightReceptorCount; ++receptor) {
-        const std::size_t base = receptor * neuro::Topology::lightChannelsPerReceptor;
-        inputs[base] = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][0]);
-        inputs[base + 1] = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][1]);
-        inputs[base + 2] = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][2]);
-        inputs[base + 3] =
-            inputs[base] * 0.2126F + inputs[base + 1] * 0.7152F + inputs[base + 2] * 0.0722F;
+    // Every index below comes from the shared preset, so a new sensor block only
+    // has to be declared once in BrainKernel.inl.
+    namespace kernel = neuro::kernel;
+    for (kernel::uint receptor = 0; receptor < kernel::BrainLightReceptorCount; ++receptor) {
+        const float red = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][0]);
+        const float green = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][1]);
+        const float blue = 1.0F - std::exp(-settings.lightExposure * radiance[receptor][2]);
+        inputs[kernel::brainLightChannelIndex(receptor, 0)] = red;
+        inputs[kernel::brainLightChannelIndex(receptor, 1)] = green;
+        inputs[kernel::brainLightChannelIndex(receptor, 2)] = blue;
+        inputs[kernel::brainLightChannelIndex(receptor, 3)] =
+            kernel::brainLuminance(red, green, blue);
     }
 
-    constexpr std::size_t tactileOffset =
-        neuro::Topology::lightReceptorCount * neuro::Topology::lightChannelsPerReceptor;
-    for (std::size_t sector = 0; sector < neuro::Topology::tactileSectorCount; ++sector) {
+    for (kernel::uint sector = 0; sector < kernel::BrainTactileSectorCount; ++sector) {
         const Float4& wall = sector < 4 ? agent.wallTouch0 : agent.wallTouch1;
         const Float4& other = sector < 4 ? agent.agentTouch0 : agent.agentTouch1;
-        inputs[tactileOffset + sector * 2] = component(wall, sector % 4);
-        inputs[tactileOffset + sector * 2 + 1] = component(other, sector % 4);
+        inputs[kernel::brainTactileChannelIndex(sector, 0)] = component(wall, sector % 4);
+        inputs[kernel::brainTactileChannelIndex(sector, 1)] = component(other, sector % 4);
     }
 
-    constexpr std::size_t selfOffset =
-        tactileOffset +
-        neuro::Topology::tactileSectorCount * neuro::Topology::tactileChannelsPerSector;
     const float speed =
         std::sqrt(agent.motion.x * agent.motion.x + agent.motion.y * agent.motion.y);
-    inputs[selfOffset] = std::clamp(speed / settings.maximumSpeed, 0.0F, 1.0F);
-    inputs[selfOffset + 1] = std::clamp(agent.motion.z / settings.maximumAngularSpeed, -1.0F, 1.0F);
-    inputs[selfOffset + 2] = std::clamp(agent.motion.w, 0.0F, 1.0F);
-    inputs[selfOffset + 3] = std::clamp(agent.signal.w, 0.0F, 1.0F);
-    inputs[selfOffset + 4] = std::clamp(agent.internal.x, 0.0F, 1.0F);
-    inputs[selfOffset + 5] = std::clamp(agent.internal.y, 0.0F, 1.0F);
-    inputs[selfOffset + 6] = std::clamp(agent.internal.z, -1.0F, 1.0F);
-    inputs[selfOffset + 7] = std::clamp(agent.internal.w, -1.0F, 1.0F);
+    inputs[kernel::BrainSelfOffset] = std::clamp(speed / settings.maximumSpeed, 0.0F, 1.0F);
+    inputs[kernel::BrainSelfOffset + 1] =
+        std::clamp(agent.motion.z / settings.maximumAngularSpeed, -1.0F, 1.0F);
+    inputs[kernel::BrainSelfOffset + 2] = std::clamp(agent.motion.w, 0.0F, 1.0F);
+    inputs[kernel::BrainSelfOffset + 3] = std::clamp(agent.signal.w, 0.0F, 1.0F);
+    inputs[kernel::BrainTaskOffset] = std::clamp(agent.internal.x, 0.0F, 1.0F);
+    inputs[kernel::BrainTaskOffset + 1] = std::clamp(agent.internal.y, 0.0F, 1.0F);
+    inputs[kernel::BrainRecurrentInputOffset] = std::clamp(agent.internal.z, -1.0F, 1.0F);
+    inputs[kernel::BrainRecurrentInputOffset + 1] = std::clamp(agent.internal.w, -1.0F, 1.0F);
     return inputs;
 }
 

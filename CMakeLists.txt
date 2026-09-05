@@ -45,13 +45,17 @@ set(SHADER_SOURCES
     agents.vert
     agents.frag
 )
-# Scenario math compiled into both the shaders and vkneuro_domain.
-set(SHADER_SHARED_KERNEL ${CMAKE_CURRENT_SOURCE_DIR}/include/vkexp/worlds/ScenarioKernel.inl)
+# Sources compiled into both the shaders and vkneuro_domain: the network preset
+# and the scenario math.
+file(GLOB SHADER_SHARED_KERNELS CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/vkexp/*/*.inl
+)
 file(GLOB SHADER_INCLUDE_SOURCES CONFIGURE_DEPENDS
     ${SHADER_SOURCE_DIR}/worlds/*.glsl
     ${SHADER_SOURCE_DIR}/worlds/steps/*.glsl
+    ${SHADER_SOURCE_DIR}/neuro/*.glsl
 )
-list(APPEND SHADER_INCLUDE_SOURCES ${SHADER_SHARED_KERNEL})
+list(APPEND SHADER_INCLUDE_SOURCES ${SHADER_SHARED_KERNELS})
 
 set(SHADER_BINARIES)
 foreach(SHADER ${SHADER_SOURCES})

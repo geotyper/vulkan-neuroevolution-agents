@@ -1,17 +1,10 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
+#include "neuro/brain_kernel.glsl"
 #include "worlds/scenario_params.glsl"
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-
-const uint LightReceptorCount = 7;
-const uint LightChannels = 4;
-const uint TactileSectorCount = 8;
-const uint TactileChannels = 2;
-const uint MaxInputCount = 52;
-const uint MaxHiddenCount = 20;
-const uint MaxOutputCount = 8;
 
 struct Agent {
     vec4 pose;
@@ -122,11 +115,7 @@ float nearestBeaconDistance(Agent agent, vec2 position) {
 #include "worlds/scenario_steps.glsl"
 
 float rangeFalloff(float distanceToLight) {
-    const float fade =
-        clamp((params.lightSensorRange - distanceToLight) /
-                  (params.lightSensorRange * 0.25),
-              0.0, 1.0);
-    return fade * fade * (3.0 - 2.0 * fade);
+    return brainRangeFalloff(distanceToLight, params.lightSensorRange);
 }
 
 ivec2 gridCoordinate(vec2 position) {
@@ -169,14 +158,14 @@ void main() {
     Agent agent = inputAgents[id];
     const uint trial = id % params.trialsPerGenome;
     const uint world = uint(max(agent.penalties.w, 0.0) + 0.5);
-    vec3 radiance[LightReceptorCount];
-    for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+    vec3 radiance[BrainLightReceptorCount];
+    for (uint receptor = 0; receptor < BrainLightReceptorCount; ++receptor) {
         radiance[receptor] = vec3(0.0);
     }
 
-    vec2 receptorDirections[LightReceptorCount];
-    for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
-        const float fraction = float(receptor) / float(LightReceptorCount - 1);
+    vec2 receptorDirections[BrainLightReceptorCount];
+    for (uint receptor = 0; receptor < BrainLightReceptorCount; ++receptor) {
+        const float fraction = float(receptor) / float(BrainLightReceptorCount - 1);
         const float sensorAngle =
             agent.pose.z + (fraction - 0.5) * params.sensorFieldOfView;
         receptorDirections[receptor] = vec2(cos(sensorAngle), sin(sensorAngle));
@@ -188,12 +177,13 @@ void main() {
         const vec2 beaconDirection = toBeacon / beaconDistance;
         const float normalizedDistanceSquared =
             beaconDistanceSquared / (params.worldRadius * params.worldRadius);
-        const float beaconAttenuation = 1.0 / (1.0 + normalizedDistanceSquared * 2.0);
+        const float beaconAttenuation = brainDistanceAttenuation(normalizedDistanceSquared);
         const float beaconFalloff = rangeFalloff(beaconDistance);
-        for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+        for (uint receptor = 0; receptor < BrainLightReceptorCount; ++receptor) {
             const float alignment = max(dot(receptorDirections[receptor], beaconDirection), 0.0);
             radiance[receptor] += activeBeaconColor(beaconIndex, trial) *
-                                  pow(alignment, 12.0) * beaconAttenuation * beaconFalloff;
+                                  brainReceptorResponse(alignment) * beaconAttenuation *
+                                  beaconFalloff;
         }
     }
     scenarioBeforeStep(agent);
@@ -233,11 +223,12 @@ void main() {
                         const float attenuation =
                             rangeFalloff(distanceToOther) /
                             (1.0 + relativeDistance * relativeDistance * 8.0);
-                        for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+                        for (uint receptor = 0; receptor < BrainLightReceptorCount;
+                             ++receptor) {
                             const float alignment =
                                 max(dot(receptorDirections[receptor], directionToOther), 0.0);
                             radiance[receptor] += other.signal.rgb * other.signal.a * 0.02 *
-                                                  pow(alignment, 12.0) * attenuation;
+                                                  brainReceptorResponse(alignment) * attenuation;
                         }
                     }
 
@@ -267,65 +258,67 @@ void main() {
         }
     }
 
-    float inputs[MaxInputCount];
-    for (uint receptor = 0; receptor < LightReceptorCount; ++receptor) {
+    // Every index below comes from the shared preset, exactly as Sensors.cpp
+    // does on the CPU side.
+    float inputs[BrainInputCapacity];
+    for (uint receptor = 0; receptor < BrainLightReceptorCount; ++receptor) {
         const vec3 observed = vec3(1.0) - exp(-params.lightExposure * radiance[receptor]);
-        const uint base = receptor * LightChannels;
-        inputs[base] = observed.r;
-        inputs[base + 1] = observed.g;
-        inputs[base + 2] = observed.b;
-        inputs[base + 3] = dot(observed, vec3(0.2126, 0.7152, 0.0722));
+        inputs[brainLightChannelIndex(receptor, 0u)] = observed.r;
+        inputs[brainLightChannelIndex(receptor, 1u)] = observed.g;
+        inputs[brainLightChannelIndex(receptor, 2u)] = observed.b;
+        inputs[brainLightChannelIndex(receptor, 3u)] =
+            brainLuminance(observed.r, observed.g, observed.b);
     }
-    const uint tactileOffset = LightReceptorCount * LightChannels;
-    for (uint sector = 0; sector < TactileSectorCount; ++sector) {
+    for (uint sector = 0; sector < BrainTactileSectorCount; ++sector) {
         const uint component = sector % 4;
-        inputs[tactileOffset + sector * TactileChannels] =
+        inputs[brainTactileChannelIndex(sector, 0u)] =
             sector < 4 ? inputAgents[id].wallTouch0[component]
                        : inputAgents[id].wallTouch1[component];
-        inputs[tactileOffset + sector * TactileChannels + 1] =
+        inputs[brainTactileChannelIndex(sector, 1u)] =
             sector < 4 ? inputAgents[id].agentTouch0[component]
                        : inputAgents[id].agentTouch1[component];
     }
-    const uint selfOffset = tactileOffset + TactileSectorCount * TactileChannels;
-    inputs[selfOffset] = clamp(length(agent.motion.xy) / params.maximumSpeed, 0.0, 1.0);
-    inputs[selfOffset + 1] =
+    inputs[BrainSelfOffset] = clamp(length(agent.motion.xy) / params.maximumSpeed, 0.0, 1.0);
+    inputs[BrainSelfOffset + 1u] =
         clamp(agent.motion.z / params.maximumAngularSpeed, -1.0, 1.0);
-    inputs[selfOffset + 2] = clamp(agent.motion.w, 0.0, 1.0);
-    inputs[selfOffset + 3] = clamp(agent.signal.w, 0.0, 1.0);
-    inputs[selfOffset + 4] = clamp(agent.internal.x, 0.0, 1.0);
-    inputs[selfOffset + 5] = clamp(agent.internal.y, 0.0, 1.0);
-    inputs[selfOffset + 6] = clamp(agent.internal.z, -1.0, 1.0);
-    inputs[selfOffset + 7] = clamp(agent.internal.w, -1.0, 1.0);
+    inputs[BrainSelfOffset + 2u] = clamp(agent.motion.w, 0.0, 1.0);
+    inputs[BrainSelfOffset + 3u] = clamp(agent.signal.w, 0.0, 1.0);
+    inputs[BrainTaskOffset] = clamp(agent.internal.x, 0.0, 1.0);
+    inputs[BrainTaskOffset + 1u] = clamp(agent.internal.y, 0.0, 1.0);
+    inputs[BrainRecurrentInputOffset] = clamp(agent.internal.z, -1.0, 1.0);
+    inputs[BrainRecurrentInputOffset + 1u] = clamp(agent.internal.w, -1.0, 1.0);
 
+    // Same construction as vkexp::neuro::evaluate: the addressing lives in
+    // BrainKernel.inl, only the substrate differs -- one genome per invocation,
+    // offset into the shared genome buffer.
     const uint genome = id / params.trialsPerGenome;
-    const uint genomeStride = params.brainLayout & 0xfffu;
-    const uint inputCount = (params.brainLayout >> 12u) & 0x3fu;
-    const uint hiddenCount = (params.brainLayout >> 18u) & 0x3fu;
-    const uint outputCount = (params.brainLayout >> 24u) & 0x1fu;
-    const uint base = genome * genomeStride;
-    float hidden[MaxHiddenCount];
-    const uint hiddenBias = inputCount * hiddenCount;
+    const uint inputCount = brainLayoutInputCount(params.brainLayout);
+    const uint hiddenCount = brainLayoutHiddenCount(params.brainLayout);
+    const uint outputCount = brainLayoutOutputCount(params.brainLayout);
+    const uint base = genome * brainLayoutStride(params.brainLayout);
+    float hidden[BrainHiddenCapacity];
     for (uint neuron = 0; neuron < hiddenCount; ++neuron) {
-        float activation = weights[base + hiddenBias + neuron];
+        float activation = weights[brainHiddenBiasIndex(base, inputCount, hiddenCount, neuron)];
         for (uint inputIndex = 0; inputIndex < inputCount; ++inputIndex) {
-            activation += weights[base + neuron * inputCount + inputIndex] * inputs[inputIndex];
+            activation += weights[brainHiddenWeightIndex(base, inputCount, neuron, inputIndex)] *
+                          inputs[inputIndex];
         }
         hidden[neuron] = tanh(activation);
     }
-    const uint outputWeights = hiddenBias + hiddenCount;
-    const uint outputBias = outputWeights + hiddenCount * outputCount;
-    float outputs[MaxOutputCount];
+    float outputs[BrainOutputCapacity];
     for (uint neuron = 0; neuron < outputCount; ++neuron) {
-        float activation = weights[base + outputBias + neuron];
+        float activation =
+            weights[brainOutputBiasIndex(base, inputCount, hiddenCount, outputCount, neuron)];
         for (uint hiddenIndex = 0; hiddenIndex < hiddenCount; ++hiddenIndex) {
-            activation += weights[base + outputWeights + neuron * hiddenCount + hiddenIndex] *
+            activation += weights[brainOutputWeightIndex(base, inputCount, hiddenCount, neuron,
+                                                         hiddenIndex)] *
                           hidden[hiddenIndex];
         }
         outputs[neuron] = tanh(activation);
     }
 
-    const float left = outputs[0];
-    const float right = outputs[1];
+    const float left = outputs[BrainMotorLeftOutput];
+    const float right = outputs[BrainMotorRightOutput];
     const vec2 forward = vec2(cos(agent.pose.z), sin(agent.pose.z));
     const float drive = 0.5 * (left + right) * params.thrust;
     agent.motion.xy += forward * drive * params.deltaTime;
@@ -387,15 +380,16 @@ void main() {
     agent.penalties.x += wallContactAmount * params.wallCollisionPenalty;
 
     const float motorCost = (abs(left) + abs(right)) * params.deltaTime;
-    const float signalIntensity = max(outputs[5], 0.0);
+    const float signalIntensity = max(outputs[BrainSignalIntensityOutput], 0.0);
     const float signalCost = signalIntensity * params.deltaTime * params.fitness.signalCostFactor;
     agent.motion.w =
         max(0.0, agent.motion.w - (motorCost + signalCost) * params.fitness.energyDrain);
-    agent.signal = vec4(outputs[2] * 0.5 + 0.5, outputs[3] * 0.5 + 0.5,
-                        outputs[4] * 0.5 + 0.5, signalIntensity);
-    if (outputCount >= 8u) {
-        agent.internal.z = outputs[6];
-        agent.internal.w = outputs[7];
+    agent.signal = vec4(outputs[BrainSignalColorOutput] * 0.5 + 0.5,
+                        outputs[BrainSignalColorOutput + 1u] * 0.5 + 0.5,
+                        outputs[BrainSignalColorOutput + 2u] * 0.5 + 0.5, signalIntensity);
+    if (outputCount >= BrainOutputCapacity) {
+        agent.internal.z = outputs[BrainRecurrentOutputOffset];
+        agent.internal.w = outputs[BrainRecurrentOutputOffset + 1u];
     } else {
         agent.internal.z = 0.0;
         agent.internal.w = 0.0;

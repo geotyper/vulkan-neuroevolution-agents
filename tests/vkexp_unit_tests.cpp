@@ -1,6 +1,7 @@
 #include "vkexp/compute/ComputeResources.hpp"
 #include "vkexp/evolution/GeneticAlgorithm.hpp"
 #include "vkexp/evolution/GenomeArchive.hpp"
+#include "vkexp/neuro/BrainKernel.hpp"
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
@@ -207,18 +208,52 @@ void testNeuralNetworkContract() {
     for (const float output : outputs) {
         check(closeTo(output, 0.0F), "Zero neural network output");
     }
-    check(vkexp::neuro::Topology::inputCount == 52, "Multimodal neural input count");
-    check(vkexp::neuro::Topology::outputCount == 8, "Actuator and memory output count");
-    check(vkexp::neuro::Topology::weightCount == 1228, "Stable flattened neural weight count");
+    // Derived from the preset rather than pinned to a snapshot: adding a sensor
+    // is meant to be a one-line edit in BrainKernel.inl, not a test rewrite.
+    namespace kernel = vkexp::neuro::kernel;
+    check(vkexp::neuro::Topology::inputCount ==
+              kernel::BrainLightReceptorCount * kernel::BrainLightChannels +
+                  kernel::BrainTactileSectorCount * kernel::BrainTactileChannels +
+                  kernel::BrainSelfInputCount + kernel::BrainTaskInputCount +
+                  kernel::BrainRecurrentCount,
+          "Input capacity is the sum of the declared sensor blocks");
+    check(vkexp::neuro::Topology::outputCount ==
+              kernel::BrainActuatorOutputCount + kernel::BrainRecurrentCount,
+          "Output capacity is actuators plus recurrent cells");
+    check(vkexp::neuro::Topology::weightCount == vkexp::neuro::maximumBrainShape.weightCount(),
+          "Genome capacity matches the widest brain shape");
+
+    // The sensor blocks must tile the input vector without gaps or overlaps.
+    check(kernel::BrainLightOffset == 0, "Light block starts the input vector");
+    check(kernel::brainLightChannelIndex(kernel::BrainLightReceptorCount - 1,
+                                         kernel::BrainLightChannels - 1) +
+                  1 ==
+              kernel::BrainTactileOffset,
+          "Tactile block follows the light block");
+    check(kernel::brainTactileChannelIndex(kernel::BrainTactileSectorCount - 1,
+                                           kernel::BrainTactileChannels - 1) +
+                  1 ==
+              kernel::BrainSelfOffset,
+          "Self block follows the tactile block");
+    check(kernel::BrainSelfOffset + kernel::BrainSelfInputCount == kernel::BrainTaskOffset,
+          "Task block follows the self block");
+    check(kernel::BrainTaskOffset + kernel::BrainTaskInputCount ==
+              kernel::BrainRecurrentInputOffset,
+          "Recurrent inputs follow the task block");
+    check(kernel::BrainRecurrentInputOffset + kernel::BrainRecurrentCount ==
+              kernel::BrainInputCapacity,
+          "Recurrent inputs close the input vector");
 
     const auto& stationary = vkexp::scenarioDefinition(vkexp::BeaconScenario::Stationary);
     const auto& forage = vkexp::scenarioDefinition(vkexp::BeaconScenario::ForageHome);
-    check(stationary.brain.inputCount == 48 && stationary.brain.hiddenCount == 20 &&
-              stationary.brain.outputCount == 6 && stationary.brain.weightCount() == 1106,
-          "Stationary scenario owns its reactive brain shape");
-    check(forage.brain.inputCount == 52 && forage.brain.hiddenCount == 20 &&
-              forage.brain.outputCount == 8 && forage.brain.weightCount() == 1228,
-          "Forage scenario owns its recurrent brain shape");
+    check(stationary.brain.inputCount == vkexp::neuro::Topology::inputCount -
+                                             vkexp::neuro::Topology::taskInputCount -
+                                             vkexp::neuro::Topology::recurrentMemoryCount &&
+              stationary.brain.outputCount == vkexp::neuro::Topology::actuatorOutputCount,
+          "Stationary scenario owns a reactive brain shape without task or memory");
+    check(forage.brain.inputCount == vkexp::neuro::Topology::inputCount &&
+              forage.brain.outputCount == vkexp::neuro::Topology::outputCount,
+          "Forage scenario owns the full recurrent brain shape");
     check(std::string_view(stationary.name) == "Stationary" &&
               std::string_view(forage.name) == "Forage + home",
           "Scenario definitions own their display names");

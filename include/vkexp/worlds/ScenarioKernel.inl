@@ -20,6 +20,7 @@ const float ForageHomeMinimumRadiusRatio = 0.38f;
 const float ForageHomeRadiusRange = 0.32f;
 const float RandomMotionSegmentSeconds = 3.0f;
 const float AlternatingDiagonalRatio = 0.62f;
+const float BeaconVisualRadius = 0.060f;
 
 VKEXP_KERNEL_FN uint scenarioHash(uint value) {
     value ^= value >> 16u;
