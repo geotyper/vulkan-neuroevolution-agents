@@ -198,7 +198,7 @@ std::vector<AgentState> SimulationDriver::makeInitialAgents() const {
                 std::fmod(positionAngle * 1.73F + 0.37F, 2.0F * std::numbers::pi_v<float>);
             AgentState agent{};
             agent.pose = {std::cos(positionAngle) * spawnRadius,
-                          std::sin(positionAngle) * spawnRadius, heading, 0.022F};
+                          std::sin(positionAngle) * spawnRadius, heading, agentBodyRadius};
             agent.motion.w = 1.0F;
             agent.signal = {0.15F, 0.45F, 0.85F, 0.0F};
             const Float4 target = stationaryBeaconPosition(static_cast<std::uint32_t>(trial),
@@ -379,7 +379,7 @@ GpuStepParameters SimulationDriver::stepParameters(const std::uint32_t generatio
             settings.lightSensorRange,
             settings.lightExposure,
             settings.collisionRestitution,
-            settings.collisionStiffness,
+            settings.contactStiffness,
             config_.gridCellSize,
             settings.wallCollisionPenalty,
             state_.agents.agentCount,

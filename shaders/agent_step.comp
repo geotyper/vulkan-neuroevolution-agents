@@ -66,7 +66,7 @@ struct StepParameters {
     float lightSensorRange;
     float lightExposure;
     float collisionRestitution;
-    float collisionStiffness;
+    float contactStiffness;
     float gridCellSize;
     float wallCollisionPenalty;
     uint agentCount;
@@ -190,6 +190,10 @@ void main() {
 
     vec2 positionCorrection = vec2(0.0);
     vec2 collisionVelocity = vec2(0.0);
+    // Fraction of an overlap resolved this step. Written in the same
+    // exp(-rate * dt) form as the drags so halving the step rate leaves the
+    // contact behaviour unchanged instead of doubling how fast it resolves.
+    const float contactResolve = 1.0 - exp(-params.contactStiffness * params.deltaTime);
     agent.wallTouch0 = vec4(0.0);
     agent.wallTouch1 = vec4(0.0);
     agent.agentTouch0 = vec4(0.0);
@@ -237,8 +241,7 @@ void main() {
                         distanceToOther < contactDistance) {
                         const vec2 normal = -directionToOther;
                         const float penetration = contactDistance - distanceToOther;
-                        positionCorrection +=
-                            normal * penetration * 0.5 * params.collisionStiffness;
+                        positionCorrection += normal * penetration * 0.5 * contactResolve;
                         const float relativeNormalSpeed =
                             dot(agent.motion.xy - other.motion.xy, normal);
                         if (relativeNormalSpeed < 0.0) {
@@ -377,7 +380,7 @@ void main() {
         }
     }
     const float wallContactAmount = dot(agent.wallTouch0 + agent.wallTouch1, vec4(1.0));
-    agent.penalties.x += wallContactAmount * params.wallCollisionPenalty;
+    agent.penalties.x += wallContactAmount * params.wallCollisionPenalty * params.deltaTime;
 
     const float motorCost = (abs(left) + abs(right)) * params.deltaTime;
     const float signalIntensity = max(outputs[BrainSignalIntensityOutput], 0.0);

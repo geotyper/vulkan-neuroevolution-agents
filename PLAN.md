@@ -15,6 +15,9 @@
 3d. The CPU path exists to inspect one agent and to build the network from the
    same declaration, not to mirror the GPU. Parallel behaviour is verified by
    tests that need many agents, not by a second implementation.
+3e. Steps are the unit of reproducibility; seconds and metres are the units of
+   physics. Anything the step accumulates over time is scaled by `deltaTime`,
+   and any fraction removed per step is written as `1 - exp(-rate * dt)`.
 4. Add one evolutionary pressure at a time and keep deterministic replay tests.
 5. Prefer measurable behavioral milestones over adding simulation features in
    parallel.
@@ -140,6 +143,19 @@ Both languages compile it, so raising `BrainSelfInputCount` from 4 to 5 moves th
 CPU evaluator, the sensor sampler, the compute shader and the tests together, and
 nothing else needs editing. The block offsets are asserted to tile the input
 vector without gaps, so a sensor block that no longer fits fails loudly.
+
+## Units
+
+`include/vkexp/simulation/Units.hpp` declares the scale: one world unit is one
+metre, the fixed rate is 60 Hz. The default arena is 3.68 m across, the body is
+4.4 cm, top speed is 0.55 m/s and a 900-step trial is 15 seconds -- roughly an
+e-puck on a large table.
+
+Steps and seconds do different jobs and both stay. A run is replayed by step
+count, archives record steps, and parity compares step for step; every physical
+quantity is expressed per second, so `deltaTime` can change without changing
+what a trial means. `testFixedStepIndependence` holds that invariant by driving
+an agent into a wall for two simulated seconds at rates from 30 to 480 Hz.
 
 ## Adding a scenario
 

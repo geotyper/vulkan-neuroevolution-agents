@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vkexp/simulation/Units.hpp"
 #include "vkexp/worlds/ScenarioKernel.hpp"
 
 #include <algorithm>
@@ -31,6 +32,13 @@ enum class BeaconScenario : std::uint32_t {
 
 inline constexpr std::size_t beaconScenarioCount = 5;
 
+// Body radius in metres: a 4.4 cm disc, roughly an e-puck-class table robot.
+// Stored per agent in `pose.w`, so a scenario may vary it; this is the spawn
+// value and the scale every other length is chosen against.
+inline constexpr float agentBodyRadius = 0.022F;
+
+// Arena radius in metres: the small world is 3.7 m across, which puts a 4.4 cm
+// body roughly 84 body-lengths from the far wall.
 inline constexpr float smallWorldRadius = 1.84F;
 // Single source of truth shared with the vertex shader.
 inline const float beaconVisualRadius = worlds::kernel::BeaconVisualRadius;
@@ -134,31 +142,38 @@ struct FitnessWeights {
     float trackingReward{0.25F};   // shaping for scenarios whose beacon keeps moving
 };
 
+// Units are metres, seconds and radians throughout; see vkexp/simulation/Units.hpp
+// for why, and for the rule that keeps per-step and per-second quantities apart.
 struct SimulationStep {
-    float deltaTime{1.0F / 60.0F};
-    float worldRadius{smallWorldRadius};
-    float thrust{1.9F};
-    float turnAcceleration{5.0F};
-    float linearDrag{1.7F};
-    float angularDrag{2.4F};
-    float sensorFieldOfView{1.8F};
-    float arrivalRadiusMultiplier{1.0F};
-    float maximumSpeed{0.55F};
-    float maximumAngularSpeed{3.0F};
-    float lightSensorRange{2.4F};
-    float lightExposure{1.25F};
-    float collisionRestitution{0.35F};
-    float collisionStiffness{0.85F};
-    float wallCollisionPenalty{0.01F};
-    float beaconAngularSpeed{0.35F};
-    float beaconRotationAngle{};
-    float beaconRadiusRatio{0.72F};
-    float beaconMotionTime{};
-    float beaconTeleportProbability{0.25F};
-    float beaconRandomSpeed{0.18F};
-    float forageCargoDecayRate{0.08F};
-    float foragePickupReward{0.25F};
-    float forageDeliveryReward{4.0F};
+    float deltaTime{units::fixedTimeStep}; // s
+    float worldRadius{smallWorldRadius};   // m
+    float thrust{1.9F};                    // m/s^2 at full forward drive
+    float turnAcceleration{5.0F};          // rad/s^2 at full differential drive
+    float linearDrag{1.7F};                // 1/s, applied as exp(-drag * dt)
+    float angularDrag{2.4F};               // 1/s, same form
+    float sensorFieldOfView{1.8F};         // rad, total arc spanned by the receptors
+    float arrivalRadiusMultiplier{1.0F};   // dimensionless
+    float maximumSpeed{0.55F};             // m/s
+    float maximumAngularSpeed{3.0F};       // rad/s
+    float lightSensorRange{2.4F};          // m
+    float lightExposure{1.25F};            // dimensionless tone-mapping gain
+    float collisionRestitution{0.35F};     // dimensionless
+    // 1/s. Overlap is resolved as 1 - exp(-rate * dt), the same exponential form
+    // the drags use, so contact resolution no longer depends on the step rate.
+    // 113.8/s reproduces the old fixed 0.85-per-step at 60 Hz to within 0.03%.
+    float contactStiffness{113.8F};
+    // Fitness charged per second of full-strength wall contact. This used to be
+    // charged per step, which quietly made deltaTime a fitness parameter.
+    float wallCollisionPenalty{0.6F};
+    float beaconAngularSpeed{0.35F};        // rad/s
+    float beaconRotationAngle{};            // rad
+    float beaconRadiusRatio{0.72F};         // fraction of worldRadius
+    float beaconMotionTime{};               // s
+    float beaconTeleportProbability{0.25F}; // dimensionless, per teleport epoch
+    float beaconRandomSpeed{0.18F};         // m/s
+    float forageCargoDecayRate{0.08F};      // cargo fraction lost per second
+    float foragePickupReward{0.25F};        // fitness per pickup event
+    float forageDeliveryReward{4.0F};       // fitness per unit of cargo delivered
     FitnessWeights fitness{};
     std::uint32_t beaconMotionSeed{};
     WorldShape worldShape{WorldShape::Circle};
@@ -218,7 +233,7 @@ struct alignas(16) GpuStepParameters {
     float lightSensorRange{};
     float lightExposure{};
     float collisionRestitution{};
-    float collisionStiffness{};
+    float contactStiffness{};
     float gridCellSize{};
     float wallCollisionPenalty{};
     std::uint32_t agentCount{};

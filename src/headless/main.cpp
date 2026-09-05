@@ -6,6 +6,7 @@
 #include "vkexp/evolution/GenomeArchive.hpp"
 #include "vkexp/simulation/SimulationDriver.hpp"
 #include "vkexp/simulation/SimulationState.hpp"
+#include "vkexp/simulation/Units.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
 #include <charconv>
@@ -61,7 +62,7 @@ void printHelp(const char* executable) {
                  "Experiment:\n"
               << "  --scenario <name>        " << scenarioKeyList() << "\n"
               << "  --generations <n>        generations to run (default 20)\n"
-                 "  --steps <n>              steps per generation (default 900)\n"
+                 "  --steps <n>              steps per generation (default 900 = 15.0 s)\n"
                  "  --population <n>         genomes (default 512)\n"
                  "  --agents-per-world <n>   agents sharing one logical world (default 12)\n"
                  "  --seed <n>               genetic algorithm seed (default 12648430)\n"
@@ -252,6 +253,15 @@ int run(const Options& options) {
                   << "Scenario:   " << scenario.name << '\n'
                   << "Brain:      " << scenario.brain.inputCount << " -> "
                   << scenario.brain.hiddenCount << " -> " << scenario.brain.outputCount << '\n'
+                  << "Trial:      " << options.stepsPerGeneration << " steps = " << std::fixed
+                  << std::setprecision(1)
+                  << vkexp::units::secondsForSteps(options.stepsPerGeneration,
+                                                   vkexp::units::fixedTimeStep)
+                  << " s at " << vkexp::units::simulationRateHz << " Hz\n"
+                  << std::setprecision(2) << "World:      " << state.physics.worldRadius * 2.0F
+                  << " m across, body "
+                  << vkexp::units::metresToCentimetres(vkexp::agentBodyRadius * 2.0F) << " cm\n"
+                  << std::defaultfloat << std::setprecision(6)
                   << "Population: " << options.populationSize << " genomes x "
                   << driver.config().trialsPerGenome << " trials = " << state.agents.agentCount
                   << " agents in " << state.worlds.worldCount << " logical worlds\n"

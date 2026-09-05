@@ -179,7 +179,7 @@ vkexp::GpuStepParameters makeStepParameters(const vkexp::SimulationStep& setting
             settings.lightSensorRange,
             settings.lightExposure,
             settings.collisionRestitution,
-            settings.collisionStiffness,
+            settings.contactStiffness,
             parityGridCellSize,
             settings.wallCollisionPenalty,
             agentCount,
@@ -383,7 +383,7 @@ void runTrajectoryParity(vkexp::HeadlessComputeContext& context,
     harness.genomes.write(weights.data(), sizeof(weights));
 
     vkexp::AgentState agent{};
-    agent.pose = {0.42F, -0.31F, 0.7F, 0.022F};
+    agent.pose = {0.42F, -0.31F, 0.7F, vkexp::agentBodyRadius};
     agent.motion = {0.05F, 0.02F, 0.0F, 1.0F};
     agent.signal = {0.15F, 0.45F, 0.85F, 0.0F};
     const vkexp::Float4 target = vkexp::stationaryBeaconPosition(0, base.worldRadius);
@@ -489,7 +489,7 @@ void runGenomeAddressingProbe(vkexp::HeadlessComputeContext& context) {
 
     std::vector<vkexp::AgentState> agents(agentCount);
     for (std::uint32_t index = 0; index < agentCount; ++index) {
-        agents[index].pose = {0.0F, 0.0F, 0.0F, 0.022F};
+        agents[index].pose = {0.0F, 0.0F, 0.0F, vkexp::agentBodyRadius};
         agents[index].motion.w = 1.0F;
         agents[index].target = {settings.worldRadius * 0.7F, 0.0F,
                                 static_cast<float>(index % trialsPerGenome), 0.0F};
@@ -542,7 +542,7 @@ void runMultiAgentDeterminism(vkexp::HeadlessComputeContext& context) {
                 base.worldRadius * 0.55F *
                 std::sqrt((static_cast<float>(index) + 0.5F) / static_cast<float>(agentCount));
             agents[index].pose = {std::cos(angle) * radius, std::sin(angle) * radius, angle,
-                                  0.022F};
+                                  vkexp::agentBodyRadius};
             agents[index].motion.w = 1.0F;
             agents[index].signal = {0.5F, 0.4F, 0.9F, 0.6F};
             agents[index].target = {base.worldRadius * 0.7F, 0.0F, 0.0F, 0.0F};
@@ -659,8 +659,8 @@ void runNeuralStepParity(
 void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool isolatedWorlds) {
     constexpr std::uint32_t agentCount = 2;
     std::array<vkexp::AgentState, agentCount> initial{};
-    initial[0].pose = {-0.01F, 0.0F, 0.0F, 0.022F};
-    initial[1].pose = {0.01F, 0.0F, 3.14159265F, 0.022F};
+    initial[0].pose = {-0.01F, 0.0F, 0.0F, vkexp::agentBodyRadius};
+    initial[1].pose = {0.01F, 0.0F, 3.14159265F, vkexp::agentBodyRadius};
     for (std::size_t index = 0; index < agentCount; ++index) {
         initial[index].motion.w = 1.0F;
         initial[index].target = {-1.0F, 0.0F, 0.0F, static_cast<float>(index)};

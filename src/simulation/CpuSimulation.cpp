@@ -113,7 +113,7 @@ void stepAgentCpu(AgentState& agent,
     const float wallContactAmount = agent.wallTouch0.x + agent.wallTouch0.y + agent.wallTouch0.z +
                                     agent.wallTouch0.w + agent.wallTouch1.x + agent.wallTouch1.y +
                                     agent.wallTouch1.z + agent.wallTouch1.w;
-    agent.penalties.x += wallContactAmount * settings.wallCollisionPenalty;
+    agent.penalties.x += wallContactAmount * settings.wallCollisionPenalty * settings.deltaTime;
 
     const float motorCost = (std::abs(left) + std::abs(right)) * settings.deltaTime;
     const float signalIntensity = std::max(output[5], 0.0F);

@@ -74,6 +74,14 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         state_.controls.stepsPerGeneration = static_cast<std::uint32_t>(generationSteps);
         state_.controls.resetRequested = true;
     }
+    // The step stays the control, because a replay is reproduced by step count.
+    // Seconds are shown beside it so arena size, speed and trial length can be
+    // read against each other in the units they are actually expressed in.
+    ImGui::Text("Trial %.1f s at %.1f Hz (dt %.2f ms)",
+                static_cast<double>(units::secondsForSteps(state_.controls.stepsPerGeneration,
+                                                           state_.physics.deltaTime)),
+                static_cast<double>(1.0F / state_.physics.deltaTime),
+                static_cast<double>(state_.physics.deltaTime * 1000.0F));
     ImGui::SeparatorText("World");
     int requestedAgentsPerWorld = static_cast<int>(state_.worlds.requestedAgentsPerWorld);
     const int populationSize = static_cast<int>(std::max(state_.agents.genomeCount, 1U));
@@ -212,20 +220,28 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     }
 
     ImGui::SeparatorText("Physics");
-    ImGui::SliderFloat("Thrust", &state_.physics.thrust, 0.2F, 4.0F);
-    ImGui::SliderFloat("Turn", &state_.physics.turnAcceleration, 0.5F, 10.0F);
-    ImGui::SliderFloat("Linear drag", &state_.physics.linearDrag, 0.1F, 5.0F);
-    ImGui::SliderFloat("Angular drag", &state_.physics.angularDrag, 0.1F, 6.0F);
-    ImGui::SliderFloat("Maximum speed", &state_.physics.maximumSpeed, 0.10F, 1.50F);
-    ImGui::SliderFloat("Maximum turn speed", &state_.physics.maximumAngularSpeed, 0.25F, 8.0F);
+    ImGui::Text("Body %.1f cm across, arena %.2f m wide",
+                static_cast<double>(units::metresToCentimetres(agentBodyRadius * 2.0F)),
+                static_cast<double>(state_.physics.worldRadius * 2.0F));
+    ImGui::SliderFloat("Thrust (m/s2)", &state_.physics.thrust, 0.2F, 4.0F);
+    ImGui::SliderFloat("Turn (rad/s2)", &state_.physics.turnAcceleration, 0.5F, 10.0F);
+    ImGui::SliderFloat("Linear drag (1/s)", &state_.physics.linearDrag, 0.1F, 5.0F);
+    ImGui::SliderFloat("Angular drag (1/s)", &state_.physics.angularDrag, 0.1F, 6.0F);
+    ImGui::SliderFloat("Maximum speed (m/s)", &state_.physics.maximumSpeed, 0.10F, 1.50F);
+    ImGui::SliderFloat("Maximum turn speed (rad/s)", &state_.physics.maximumAngularSpeed, 0.25F,
+                       8.0F);
     ImGui::SliderFloat("Collision restitution", &state_.physics.collisionRestitution, 0.0F, 1.0F);
-    ImGui::SliderFloat("Collision stiffness", &state_.physics.collisionStiffness, 0.1F, 1.0F);
-    ImGui::SliderFloat("Wall penalty / step", &state_.physics.wallCollisionPenalty, 0.0F, 0.10F,
-                       "%.4f");
+    ImGui::SliderFloat("Contact stiffness (1/s)", &state_.physics.contactStiffness, 5.0F, 300.0F);
+    ImGui::SetItemTooltip(
+        "Overlap resolved per step: %.0f%%",
+        static_cast<double>(100.0F * (1.0F - std::exp(-state_.physics.contactStiffness *
+                                                      state_.physics.deltaTime))));
+    ImGui::SliderFloat("Wall penalty / s", &state_.physics.wallCollisionPenalty, 0.0F, 6.0F,
+                       "%.2f");
     ImGui::Checkbox("Agent collisions", &state_.physics.agentCollisionsEnabled);
     ImGui::SeparatorText("Sensors");
     ImGui::SliderAngle("Sensor FOV", &state_.physics.sensorFieldOfView, 20.0F, 170.0F);
-    ImGui::SliderFloat("Light range", &state_.physics.lightSensorRange, 0.25F,
+    ImGui::SliderFloat("Light range (m)", &state_.physics.lightSensorRange, 0.25F,
                        state_.physics.worldRadius * 2.0F);
     ImGui::SliderFloat("Light exposure", &state_.physics.lightExposure, 0.1F, 4.0F);
     ImGui::Checkbox("Perceive agent light", &state_.physics.agentLightEnabled);

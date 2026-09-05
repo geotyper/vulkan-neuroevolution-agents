@@ -13,6 +13,11 @@ are separate targets rather than one application-specific module.
 
 ## Current experiment
 
+The world is metric: one unit is one metre, the step is fixed at 60 Hz, and the
+default arena is 3.68 m across with a 4.4 cm body moving at up to 0.55 m/s, so a
+900-step trial is 15 seconds. Steps remain the unit of reproducibility -- runs
+replay by step count -- while every physical quantity is expressed per second.
+
 - 512 genomes, each evaluated in four trials (2048 GPU agents);
 - population partitioned into configurable logical groups (12 agents per world
   by default, with an all-agents mode);
@@ -29,8 +34,7 @@ are separate targets rather than one application-specific module.
   deterministic random movement with occasional teleportation, or an
   orbiting-resource/static-home foraging cycle;
 - circle-circle agent collisions with impulse response and tactile pressure;
-- configurable accumulated fitness penalty for hitting or pushing against the
-  world boundary;
+- configurable fitness penalty per second of contact with the world boundary;
 - additive, softly tone-mapped RGB perception of nearby agent signals;
 - runtime ablation switches for agent collisions and agent-light perception;
 - average fitness across trials rewards progress and completion in every beacon
@@ -163,6 +167,21 @@ UI replace its counterpart without changing the application lifecycle.
 callbacks onto it. The batch runner drives the same driver from an
 `ImmediateContext`, so a sweep and the window run identical code.
 
+### Units and the two time bases
+
+`include/vkexp/simulation/Units.hpp` is where the scale is declared and where
+the step's two time bases are reconciled. A step is the unit of reproducibility:
+replays, archives and parity tests are all indexed by step count, and none of
+them depends on wall-clock time. A second is the unit the physics is written in
+-- speeds in m/s, drags and decay rates in 1/s -- so that `deltaTime` is a free
+parameter rather than a hidden part of the fitness function.
+
+The rule that keeps them consistent: a quantity accumulated over the step is
+multiplied by `deltaTime`, and a fraction removed per step is written as
+`1 - exp(-rate * dt)`, the form the drags already used. The wall penalty and the
+contact solver were the two that broke it, and both were charged per step, which
+is why `deltaTime` was pinned at 1/60 and never exposed.
+
 ### Where the CPU path fits
 
 The CPU code is not a mirror of the shader. It exists to build the network from
@@ -222,6 +241,11 @@ On top of that, every scenario runs a 540-step trajectory regression:
 - **genome addressing.** Six genomes with distinctive motor biases; each agent
   must follow its own. This is the class of bug a single-agent parity test
   structurally cannot see.
+- **step-rate independence.** An agent is driven into a wall and held there for
+  two simulated seconds at 30, 60, 120, 240 and 480 Hz. The accumulated penalty
+  has to stay within 25% of the 60 Hz value while the step count changes 16x,
+  and has to stay closer to it than the step-count ratio would put it -- the
+  second half is what fails if an accumulator goes back to counting steps.
 
 Pure CPU tests cover world scaling, beacon layouts, logical-world partition
 mapping, channel mapping, weight layout, neural evaluation, elite preservation,
@@ -302,6 +326,8 @@ The next world feature should enter through a focused contract:
   not touch the shared step parameters, the simulation, the scoring or the UI;
 - a new sensor channel is a line in the network preset; offsets, genome size and
   both implementations follow;
+- a new accumulated cost or reward is written per second, so it does not silently
+  become a function of the step rate;
 - walls and occlusion extend sensor/world queries;
 - richer recurrent cells or gated memory can extend the two-value recurrent state;
 - internal walls and occlusion extend grid-backed world queries;

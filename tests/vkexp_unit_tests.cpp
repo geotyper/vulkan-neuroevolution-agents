@@ -7,6 +7,7 @@
 #include "vkexp/profiling/ProfilerTypes.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
 #include "vkexp/simulation/Sensors.hpp"
+#include "vkexp/simulation/Units.hpp"
 #include "vkexp/worlds/ScenarioKernel.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
@@ -268,7 +269,7 @@ void testNeuralNetworkContract() {
 
 void testMultimodalSensors() {
     vkexp::AgentState agent{};
-    agent.pose = {0.0F, 0.0F, 0.0F, 0.022F};
+    agent.pose = {0.0F, 0.0F, 0.0F, vkexp::agentBodyRadius};
     agent.motion.w = 1.0F;
     agent.target = {1.0F, 0.0F, 0.0F, 0.0F};
     agent.internal = {0.7F, 1.0F, -0.4F, 0.6F};
@@ -400,7 +401,7 @@ void testWorldAndBeaconScenarios() {
 
 void testForageCycleAndMemory() {
     vkexp::AgentState agent{};
-    agent.pose.w = 0.022F;
+    agent.pose.w = vkexp::agentBodyRadius;
     agent.motion.w = 1.0F;
     agent.target = {1.0F, 0.0F, 0.0F, 0.0F};
     vkexp::SimulationStep settings{};
@@ -439,7 +440,7 @@ void testForageCycleAndMemory() {
 
     vkexp::AgentState radiusProbe{};
     radiusProbe.pose = {beacons.values[0].position.x + vkexp::beaconVisualRadius * 2.0F,
-                        beacons.values[0].position.y, 0.0F, 0.022F};
+                        beacons.values[0].position.y, 0.0F, vkexp::agentBodyRadius};
     radiusProbe.motion.w = 1.0F;
     radiusProbe.target = {1.0F, 0.0F, 0.0F, 0.0F};
     radiusProbe.metrics = {vkexp::beaconVisualRadius * 2.0F, vkexp::beaconVisualRadius * 2.0F, 0.0F,
@@ -457,7 +458,7 @@ void testForageCycleAndMemory() {
 
 void testWallCollisionPenalty() {
     vkexp::AgentState agent{};
-    agent.pose = {1.817F, 0.0F, 0.0F, 0.022F};
+    agent.pose = {1.817F, 0.0F, 0.0F, vkexp::agentBodyRadius};
     agent.motion = {0.55F, 0.0F, 0.0F, 1.0F};
     agent.target = {0.0F, 0.0F, 0.0F, 0.0F};
     agent.metrics = {1.817F, 1.817F, 0.0F, 0.0F};
@@ -478,6 +479,66 @@ void testWallCollisionPenalty() {
               agent.metrics.w + (agent.metrics.x - agent.metrics.y) -
                   agent.metrics.z * fitnessWeights.motorCostWeight,
           "Wall collision penalty lowers fitness");
+}
+
+// The step used to mix two time bases: velocities, drags and motor costs were
+// integrated per second, while the wall penalty and the contact solver
+// accumulated per step. That made deltaTime a fitness parameter in disguise --
+// the same trial at 240 Hz charged four times the wall penalty of one at 60 Hz,
+// which is why deltaTime was pinned at 1/60 and never exposed.
+//
+// Driving an agent into a wall and holding it there for two simulated seconds
+// is what makes the difference visible. Charging per second leaves a residual
+// spread of about 1.4x across a 16x change in step rate, all of it from contact
+// detection in a bouncing model: the impact speed feeding the contact strength
+// shrinks with the step, and the chatter duty cycle drifts from 95% to 88%.
+// Charging per step would instead scale straight with the step count.
+void testFixedStepIndependence() {
+    const vkexp::neuro::BrainShape brain =
+        vkexp::scenarioDefinition(vkexp::BeaconScenario::Stationary).brain;
+    const auto inputCount = static_cast<vkexp::neuro::kernel::uint>(brain.inputCount);
+    const auto hiddenCount = static_cast<vkexp::neuro::kernel::uint>(brain.hiddenCount);
+    const auto outputCount = static_cast<vkexp::neuro::kernel::uint>(brain.outputCount);
+    vkexp::neuro::Weights drivingWeights{};
+    for (const vkexp::neuro::kernel::uint motor : {vkexp::neuro::kernel::BrainMotorLeftOutput,
+                                                   vkexp::neuro::kernel::BrainMotorRightOutput}) {
+        drivingWeights[vkexp::neuro::kernel::brainOutputBiasIndex(0, inputCount, hiddenCount,
+                                                                  outputCount, motor)] = 3.0F;
+    }
+
+    const auto penaltyForTwoSeconds = [&drivingWeights](const float rateHz) {
+        vkexp::SimulationStep settings{};
+        settings.deltaTime = 1.0F / rateHz;
+        settings.worldShape = vkexp::WorldShape::Square;
+        settings.wallCollisionPenalty = 0.6F;
+        vkexp::AgentState agent{};
+        agent.pose = {1.81F, 0.0F, 0.0F, vkexp::agentBodyRadius};
+        agent.motion = {0.0F, 0.0F, 0.0F, 1.0F};
+        agent.metrics = {1.81F, 1.81F, 0.0F, 0.0F};
+        const auto steps = static_cast<std::uint32_t>(rateHz * 2.0F);
+        for (std::uint32_t step = 0; step < steps; ++step) {
+            vkexp::stepAgentCpu(agent, drivingWeights, settings);
+        }
+        return agent.penalties.x;
+    };
+
+    const float baseline = penaltyForTwoSeconds(vkexp::units::simulationRateHz);
+    check(baseline > 0.0F, "Driving into a wall for two seconds accumulates a penalty");
+    for (const float rateHz : {30.0F, 120.0F, 240.0F, 480.0F}) {
+        const float ratio = penaltyForTwoSeconds(rateHz) / baseline;
+        const float stepCountRatio = rateHz / vkexp::units::simulationRateHz;
+        check(ratio > 0.75F && ratio < 1.25F,
+              "Wall penalty over two simulated seconds barely moves with the step rate");
+        // The discriminating half: per-step accumulation would put the ratio at
+        // the step-count ratio instead, which is 0.5x to 8x here.
+        check(std::abs(ratio - 1.0F) < std::abs(stepCountRatio - 1.0F) * 0.5F,
+              "Wall penalty tracks simulated time rather than step count");
+    }
+
+    check(std::abs(vkexp::units::secondsForSteps(900, vkexp::units::fixedTimeStep) - 15.0F) < 1e-5F,
+          "900 steps at the fixed rate is 15 seconds");
+    check(std::abs(vkexp::units::secondsForSteps(3600, 1.0F / 240.0F) - 15.0F) < 1e-5F,
+          "3600 steps at 240 Hz covers the same 15 seconds");
 }
 
 void testScenarioRegistryContract() {
@@ -505,7 +566,7 @@ void testScenarioRegistryContract() {
         // Every scenario must be steppable without the caller knowing which it is.
         const vkexp::neuro::Weights zeroWeights{};
         vkexp::AgentState stepped = agent;
-        stepped.pose.w = 0.022F;
+        stepped.pose.w = vkexp::agentBodyRadius;
         vkexp::stepAgentCpu(stepped, zeroWeights, settings);
         check(std::isfinite(stepped.pose.x) && std::isfinite(stepped.metrics.w),
               label + ": one step through the hooks stays finite");
@@ -721,6 +782,7 @@ int main() {
     testLogicalWorldPartition();
     testPingPongState();
     testNeuralNetworkContract();
+    testFixedStepIndependence();
     testMultimodalSensors();
     testWorldAndBeaconScenarios();
     testForageCycleAndMemory();
