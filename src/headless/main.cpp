@@ -37,6 +37,12 @@ struct Options {
     bool agentCollisions{true};
     bool agentLight{true};
     vkexp::FitnessWeights fitness{};
+    // Optional physics overrides. Absent means "keep the default", which lets a
+    // sweep change one term without restating the rest of SimulationStep.
+    std::optional<float> beaconAngularSpeed;
+    std::optional<float> beaconRadiusRatio;
+    std::optional<float> lightSensorRange;
+    std::optional<float> maximumSpeed;
     bool quiet{};
     std::string savePopulation;
     std::string saveChampion;
@@ -69,6 +75,11 @@ void printHelp(const char* executable) {
                  "  --world-size <name>      small|medium|large\n"
                  "  --world-shape <name>     circle|square\n"
                  "  --steps-per-batch <n>    steps recorded per submission (default 128)\n\n"
+                 "World physics (default = the value the UI starts with):\n"
+                 "  --beacon-speed <x>       beacon angular speed in rad/s (default 0.35)\n"
+                 "  --orbit-ratio <x>        orbit radius as a fraction of the arena (0.72)\n"
+                 "  --light-range <x>        light sensor range in metres (default 2.4)\n"
+                 "  --max-speed <x>          agent speed limit in m/s (default 0.55)\n\n"
                  "Ablations:\n"
                  "  --no-agent-collisions    disable agent-agent collisions\n"
                  "  --no-agent-light         disable perception of other agents' signals\n\n"
@@ -163,6 +174,14 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.fitness.signalCostFactor = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--energy-drain") {
             options.fitness.energyDrain = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--beacon-speed") {
+            options.beaconAngularSpeed = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--orbit-ratio") {
+            options.beaconRadiusRatio = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--light-range") {
+            options.lightSensorRange = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--max-speed") {
+            options.maximumSpeed = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-agent-collisions") {
             options.agentCollisions = false;
         } else if (argument == "--no-agent-light") {
@@ -213,6 +232,18 @@ int run(const Options& options) {
     state.physics.agentCollisionsEnabled = options.agentCollisions;
     state.physics.agentLightEnabled = options.agentLight;
     state.physics.fitness = options.fitness;
+    if (options.beaconAngularSpeed) {
+        state.physics.beaconAngularSpeed = *options.beaconAngularSpeed;
+    }
+    if (options.beaconRadiusRatio) {
+        state.physics.beaconRadiusRatio = *options.beaconRadiusRatio;
+    }
+    if (options.lightSensorRange) {
+        state.physics.lightSensorRange = *options.lightSensorRange;
+    }
+    if (options.maximumSpeed) {
+        state.physics.maximumSpeed = *options.maximumSpeed;
+    }
 
     vkexp::EvolutionSettings evolution;
     evolution.populationSize = options.populationSize;
