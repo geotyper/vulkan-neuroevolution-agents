@@ -8,6 +8,8 @@
 
 namespace vkexp {
 
+inline constexpr float forageHomeRelocationSeconds = 8.0F;
+
 struct Beacon {
     Float4 position;
     Float4 color;
@@ -19,9 +21,13 @@ struct ActiveBeacons {
 };
 
 [[nodiscard]] Float4 stationaryBeaconPosition(std::uint32_t trial, float worldRadius);
-[[nodiscard]] Float4 homeBeaconPosition(const AgentState& agent, float worldRadius);
-[[nodiscard]] ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& settings);
-[[nodiscard]] float nearestBeaconDistance(const AgentState& agent, const SimulationStep& settings);
+[[nodiscard]] Float4 homeBeaconPosition(const AgentState& agent,
+                                        const SimulationStep& settings);
+[[nodiscard]] bool homeBeaconRelocated(const SimulationStep& settings);
+[[nodiscard]] ActiveBeacons activeBeacons(const AgentState& agent,
+                                          const SimulationStep& settings);
+[[nodiscard]] float nearestBeaconDistance(const AgentState& agent,
+                                          const SimulationStep& settings);
 [[nodiscard]] std::uint32_t completedBeaconPhases(const AgentState& agent);
 [[nodiscard]] std::uint32_t completedForageCycles(const AgentState& agent);
 [[nodiscard]] std::uint32_t beaconPhaseForStep(BeaconScenario scenario, std::uint32_t step,

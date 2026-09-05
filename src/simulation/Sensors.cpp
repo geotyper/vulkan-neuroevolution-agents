@@ -1,6 +1,6 @@
 #include "vkexp/simulation/Sensors.hpp"
 
-#include "vkexp/simulation/Beacons.hpp"
+#include "vkexp/worlds/WorldScenario.hpp"
 
 #include <algorithm>
 #include <array>

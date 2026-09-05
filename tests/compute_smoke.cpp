@@ -1,8 +1,8 @@
 #include "vkexp/compute/HeadlessComputeContext.hpp"
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/simulation/AgentTypes.hpp"
-#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
+#include "vkexp/worlds/WorldScenario.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -167,8 +167,9 @@ void runNeuralStepParity(
         settings.beaconMotionSeed = 73U;
     } else if (beaconScenario == vkexp::BeaconScenario::ForageHome) {
         settings.beaconRotationAngle = 0.73F;
+        settings.beaconMotionTime = vkexp::forageHomeRelocationSeconds;
         initial.internal = {0.8F, 1.0F, 0.2F, -0.3F};
-        const vkexp::Float4 home = vkexp::homeBeaconPosition(initial, settings.worldRadius);
+        const vkexp::Float4 home = vkexp::homeBeaconPosition(initial, settings);
         initial.pose.x = home.x;
         initial.pose.y = home.y;
     }

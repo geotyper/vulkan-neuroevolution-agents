@@ -3,9 +3,9 @@
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
-#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
 #include "vkexp/simulation/Sensors.hpp"
+#include "vkexp/worlds/WorldScenario.hpp"
 
 #include <cmath>
 #include <exception>
@@ -309,6 +309,8 @@ void testWorldAndBeaconScenarios() {
 
     settings.beaconScenario = vkexp::BeaconScenario::ForageHome;
     settings.beaconRotationAngle = 0.0F;
+    settings.beaconMotionSeed = 42U;
+    settings.beaconMotionTime = 0.0F;
     const vkexp::ActiveBeacons forage = vkexp::activeBeacons(agent, settings);
     check(forage.count == 2 && forage.values[0].color.x > forage.values[0].color.z &&
               forage.values[1].color.z > forage.values[1].color.x,
@@ -321,6 +323,18 @@ void testWorldAndBeaconScenarios() {
     agent.internal.y = 1.0F;
     check(closeTo(vkexp::nearestBeaconDistance(agent, settings), 0.0F),
           "Forage task targets home while carrying cargo");
+    settings.beaconMotionTime = vkexp::forageHomeRelocationSeconds - 0.01F;
+    const vkexp::Float4 homeBeforeRelocation = vkexp::homeBeaconPosition(agent, settings);
+    settings.beaconMotionTime = vkexp::forageHomeRelocationSeconds;
+    const vkexp::Float4 homeAfterRelocation = vkexp::homeBeaconPosition(agent, settings);
+    check(!closeTo(homeBeforeRelocation.x, homeAfterRelocation.x) ||
+              !closeTo(homeBeforeRelocation.y, homeAfterRelocation.y),
+          "Forage home deterministically relocates at its configured interval");
+    check(vkexp::homeBeaconRelocated(settings),
+          "Forage scenario reports the exact home relocation step");
+    settings.beaconMotionTime += settings.deltaTime;
+    check(!vkexp::homeBeaconRelocated(settings),
+          "Forage scenario reports relocation for only one simulation step");
 }
 
 void testForageCycleAndMemory() {

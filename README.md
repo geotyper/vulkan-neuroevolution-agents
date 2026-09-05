@@ -72,7 +72,7 @@ only work from one spawn position or heading.
 | Beacon scenario | Alternating diagonals | Two beacons occupy one diagonal during the first half of a generation, then two beacons occupy the opposite diagonal. |
 | Beacon scenario | Rotating | One beacon per trial continuously orbits the world centre; speed and direction are adjustable from -90 to +90 degrees per second. |
 | Beacon scenario | Random movement | Each trial follows a smooth bounded wandering path with adjustable speed and a configurable teleport chance checked every three seconds. |
-| Beacon scenario | Forage + home | Agents collect an orange orbiting resource, then carry its decaying value to a stationary blue home before seeking the resource again. |
+| Beacon scenario | Forage + home | Agents collect an orange orbiting resource, then carry its decaying value to a blue home that relocates every eight seconds before seeking the resource again. |
 
 Changing the world size, shape, or beacon scenario resets the evolution because
 fitness values gathered in different environments are not directly comparable.
@@ -87,6 +87,8 @@ The foraging scenario does not grant passive tracking fitness. Reaching the
 resource switches an explicit task input from `seek resource` to `seek home`
 and fills a cargo-level input. Cargo decays while being carried, so prompt home
 delivery is worth more; delivery completes a cycle and switches the task back.
+The home teleports to a deterministic random position every eight simulation
+seconds, independently for each trial and generation.
 Fitness remains cumulative—the expiring cargo is the decreasing reward
 potential—so long generations do not erase already completed work. Two separate
 learned memory values are fed back as inputs on the next simulation step and
@@ -99,13 +101,16 @@ vulkan_neuroevolution_agents (composition root)
   |
   +-- vkneuro_domain          no Vulkan dependency
   |     NeuralNetwork         flattened brain contract + CPU evaluator
-  |     Beacons               world sizing + active beacon scenarios
+  |     worlds/
+  |       WorldScenario       public scenario dispatcher
+  |       scenarios/          one C++ module per world scenario
   |     Sensors               CPU reference perception
   |     CpuSimulation         CPU reference physics/fitness
   |     GeneticAlgorithm      selection/crossover/mutation
   |
   +-- vkneuro_simulation
   |     SimulationModule      ping-pong state + compute orchestration
+  |     worlds/*.glsl         shared per-scenario shader implementations
   |     agent_grid_*.comp     per-logical-world spatial acceleration
   |     agent_step.comp       RGB sensors + brain + collisions + physics
   |

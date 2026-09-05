@@ -1,7 +1,7 @@
 #include "vkexp/simulation/CpuSimulation.hpp"
 
-#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/Sensors.hpp"
+#include "vkexp/worlds/WorldScenario.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +38,12 @@ void stepAgentCpu(AgentState& agent,
     if (settings.beaconScenario == BeaconScenario::AlternatingDiagonals &&
         settings.beaconPhaseChanged) {
         agent.metrics.w += agent.metrics.x - agent.metrics.y;
+        agent.metrics.x = nearestBeaconDistance(agent, settings);
+        agent.metrics.y = agent.metrics.x;
+    }
+    if (settings.beaconScenario == BeaconScenario::ForageHome && agent.internal.y >= 0.5F &&
+        homeBeaconRelocated(settings)) {
+        agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
         agent.metrics.x = nearestBeaconDistance(agent, settings);
         agent.metrics.y = agent.metrics.x;
     }

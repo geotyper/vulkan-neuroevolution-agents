@@ -45,15 +45,23 @@ set(SHADER_SOURCES
     agents.vert
     agents.frag
 )
+file(GLOB SHADER_INCLUDE_SOURCES CONFIGURE_DEPENDS
+    ${SHADER_SOURCE_DIR}/worlds/*.glsl
+)
 
 set(SHADER_BINARIES)
 foreach(SHADER ${SHADER_SOURCES})
     set(SPIRV ${SHADER_BINARY_DIR}/${SHADER}.spv)
+    set(SHADER_EXTRA_DEPENDENCIES)
+    if(SHADER STREQUAL "agent_step.comp" OR SHADER STREQUAL "agents.vert")
+        set(SHADER_EXTRA_DEPENDENCIES ${SHADER_INCLUDE_SOURCES})
+    endif()
     add_custom_command(
         OUTPUT ${SPIRV}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BINARY_DIR}
-        COMMAND ${GLSLANG_VALIDATOR} -V ${SHADER_SOURCE_DIR}/${SHADER} -o ${SPIRV}
-        DEPENDS ${SHADER_SOURCE_DIR}/${SHADER}
+        COMMAND ${GLSLANG_VALIDATOR} -V -I${SHADER_SOURCE_DIR}
+                ${SHADER_SOURCE_DIR}/${SHADER} -o ${SPIRV}
+        DEPENDS ${SHADER_SOURCE_DIR}/${SHADER} ${SHADER_EXTRA_DEPENDENCIES}
         COMMENT "Compiling ${SHADER}"
         VERBATIM
     )
@@ -115,10 +123,15 @@ vkexp_enable_warnings(vkexp_compute)
 
 add_library(vkneuro_domain STATIC
     src/neuro/NeuralNetwork.cpp
-    src/simulation/Beacons.cpp
     src/simulation/Sensors.cpp
     src/simulation/CpuSimulation.cpp
     src/evolution/GeneticAlgorithm.cpp
+    src/worlds/WorldScenario.cpp
+    src/worlds/scenarios/StationaryScenario.cpp
+    src/worlds/scenarios/AlternatingScenario.cpp
+    src/worlds/scenarios/RotatingScenario.cpp
+    src/worlds/scenarios/RandomMovementScenario.cpp
+    src/worlds/scenarios/ForageHomeScenario.cpp
 )
 target_include_directories(vkneuro_domain PUBLIC include)
 vkexp_enable_warnings(vkneuro_domain)

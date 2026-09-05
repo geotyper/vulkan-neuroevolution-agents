@@ -2,8 +2,8 @@
 
 #include "vkexp/core/VulkanContext.hpp"
 #include "vkexp/profiling/Profiler.hpp"
-#include "vkexp/simulation/Beacons.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
+#include "vkexp/worlds/WorldScenario.hpp"
 
 #include <algorithm>
 #include <array>

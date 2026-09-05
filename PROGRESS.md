@@ -7,7 +7,7 @@
 
 ## Текущее состояние
 
-- Рабочая ветка: `feature/multi-world-agent-groups`.
+- Рабочая ветка: `feature/modular-world-scenarios`.
 - Базовый эксперимент запускается и эволюция сходится к фототаксису: доля
   агентов, достигающих маяка, растёт по поколениям.
 - Основная симуляция выполняется на GPU.
@@ -284,7 +284,8 @@ Unit-тест проверяет, что удар о границу создаё
 Новый сценарий `Forage + home` устраняет выгодную стратегию ожидания в центре
 вращающегося маяка:
 
-- оранжевый ресурс движется по орбите, голубой дом остаётся неподвижным;
+- оранжевый ресурс движется по орбите, голубой дом каждые 8 секунд переносится
+  в новую детерминированно-случайную точку;
 - агент сначала ищет ресурс, после контакта получает полный груз и переключается
   на поиск дома;
 - груз постепенно теряет ценность, поэтому быстрая доставка выгоднее ожидания;
@@ -314,6 +315,42 @@ Unit-тест проверяет, что удар о границу создаё
 1228 весов, а `AgentState` — 176 байт. CPU reference, compute shader и renderer
 используют одинаковый layout. Unit-тест покрывает pickup/delivery и сохранение
 memory outputs; headless CPU/GPU parity выполняет шаг доставки домой.
+
+## Этап 7. Модульные сценарии мира — завершён
+
+Монолитные `Beacons.hpp/.cpp` удалены. Сценарии разделены по ответственности:
+
+```text
+include/vkexp/worlds/
+  WorldScenario.hpp              публичный контракт и dispatcher
+  ScenarioMath.hpp               общие цвета и deterministic random
+  scenarios/
+    StationaryScenario.hpp
+    AlternatingScenario.hpp
+    RotatingScenario.hpp
+    RandomMovementScenario.hpp
+    ForageHomeScenario.hpp
+
+src/worlds/
+  WorldScenario.cpp
+  scenarios/*.cpp                отдельная реализация каждого сценария
+
+shaders/worlds/
+  world_scenarios.glsl           общий GPU dispatcher
+  stationary.glsl
+  alternating.glsl
+  rotating.glsl
+  random_movement.glsl
+  forage_home.glsl
+  scenario_math.glsl
+```
+
+Simulation, sensors, renderer и tests зависят только от публичного
+`WorldScenario`. Конкретные C++-сценарии имеют собственные include-зависимости;
+`ForageHome` переиспользует расчёт орбиты из `Rotating`. Compute и vertex shader
+подключают одинаковые scenario include-файлы, поэтому положение перемещаемого
+дома больше не дублируется в двух GLSL entry points. CMake отслеживает GLSL
+include-файлы только для двух использующих их шейдеров.
 
 ## Исправления интерфейса
 

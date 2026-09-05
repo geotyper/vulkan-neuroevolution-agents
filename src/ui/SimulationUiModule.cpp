@@ -3,6 +3,7 @@
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/Profiler.hpp"
 #include "vkexp/ui/ImGuiModule.hpp"
+#include "vkexp/worlds/WorldScenario.hpp"
 
 #include <imgui.h>
 
@@ -155,6 +156,8 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                 state_.controls.resetRequested = true;
             }
             ImGui::TextDisabled("Orange resource -> blue home -> repeat");
+            ImGui::TextDisabled("Home relocates every %.0f seconds",
+                                forageHomeRelocationSeconds);
         }
     } else if (state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
         if (ImGui::SliderFloat("Wander speed", &state_.physics.beaconRandomSpeed, 0.0F, 0.75F,
