@@ -48,12 +48,23 @@ inline constexpr float agentBodyDiameter = agentBodyRadius * 2.0F;
 // tips are 15.5 cm apart, three and a half cells even at the coarsest.
 //
 // What actually limits the fine end is bandwidth, not capacity: the decay pass
-// touches every value of every world on every step, so halving the cell size
-// quadruples that traffic. The UI prints both numbers, and the driver refuses to
-// allocate past a budget rather than asking for gigabytes.
-inline constexpr float trailCellFractionFinest = 0.2F;
-inline constexpr float trailCellFractionCoarsest = 1.0F;
-inline constexpr std::uint64_t trailFieldByteBudget = 1024ULL * 1024ULL * 1024ULL;
+// touches every value of every world on every step, so the field is read and
+// written in full sixty times a second, and halving the cell size quadruples
+// that. The field also scales with the world count, which grows as the group
+// size shrinks -- 512 genomes at 12 agents per world is 172 fields, not one.
+//
+// So the budget is set by what can be streamed twice per step, not by what fits:
+// 256 MiB of field is half a gigabyte of traffic per step, which is a few
+// milliseconds. It is additionally capped against the device's own memory, since
+// a headless CI GPU may have far less than a desktop one.
+// The resolutions on offer, in body diameters per cell. Shared with the UI so a
+// clamped choice always lands on a setting the menu can name: coarsening by
+// doubling would leave the label saying one thing and the field being another.
+inline constexpr std::array<float, 5> trailCellFractions{0.2F, 0.25F, 1.0F / 3.0F, 0.5F, 1.0F};
+inline constexpr float trailCellFractionFinest = trailCellFractions.front();
+inline constexpr float trailCellFractionCoarsest = trailCellFractions.back();
+inline constexpr std::uint64_t trailFieldByteBudget = 256ULL * 1024ULL * 1024ULL;
+inline constexpr std::uint64_t trailFieldHeapFraction = 16; // at most a sixteenth of VRAM
 
 [[nodiscard]] constexpr float trailCellSizeForBodyFraction(const float fraction) {
     return agentBodyDiameter * fraction;

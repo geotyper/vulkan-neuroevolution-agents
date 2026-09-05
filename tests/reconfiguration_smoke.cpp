@@ -68,14 +68,19 @@ int run() {
     vkexp::HeadlessComputeContext context{
         vkexp::HeadlessComputeConfig{.applicationName = "vkneuro reconfiguration smoke"}};
 
+    // The population has to be the real one. An earlier version of this test ran
+    // 96 genomes, which tops out at 40 logical worlds; the configuration that was
+    // actually reported broken -- 512 genomes at 12 agents per world -- is 172
+    // fields, and the field cost scales with that count. A small population makes
+    // every allocation here comfortable and proves nothing about the real one.
     vkexp::SimulationState state{};
-    state.controls.stepsPerGeneration = 96;
-    state.worlds.requestedAgentsPerWorld = 24;
+    state.controls.stepsPerGeneration = 48;
+    state.worlds.requestedAgentsPerWorld = 29;
     state.physics.worldSize = vkexp::WorldSize::Small;
     state.physics.worldRadius = vkexp::worldRadiusForSize(state.physics.worldSize);
     state.physics.lightSensorRange = vkexp::lightRangeForWorld(state.physics);
 
-    vkexp::SimulationDriver driver{state, vkexp::EvolutionSettings{.populationSize = 96}, {}};
+    vkexp::SimulationDriver driver{state, vkexp::EvolutionSettings{.populationSize = 512}, {}};
     driver.createResources(context.physicalDevice(), context.device());
     stepAndCheck(context, driver, state, "initial configuration");
 
@@ -95,7 +100,9 @@ int run() {
     // 2. Group size, in both directions. Shrinking it multiplies the number of
     //    logical worlds, which is what grows the per-world buffers; growing it
     //    back must not leave the driver believing in the larger layout.
-    for (const std::uint32_t agentsPerWorld : {96U, 10U, 32U, 10U}) {
+    // 29 is where the reporter said it still worked and 12 is where it stopped;
+    // 10 is the floor the UI allows, which is the largest world count reachable.
+    for (const std::uint32_t agentsPerWorld : {512U, 29U, 12U, 10U, 29U, 12U}) {
         state.worlds.requestedAgentsPerWorld = agentsPerWorld;
         driver.restart();
         require(state.worlds.agentsPerWorld <= agentsPerWorld,
@@ -120,16 +127,26 @@ int run() {
         stepAndCheck(context, driver, state, "trail resolution");
     }
 
-    // 4. The combination that changes both the world count and the field size at
-    //    once, which is the shape of the reported failure.
-    state.physics.worldSize = vkexp::WorldSize::Large;
-    state.physics.worldRadius = vkexp::worldRadiusForSize(vkexp::WorldSize::Large);
-    state.physics.lightSensorRange = vkexp::lightRangeForWorld(state.physics);
-    state.worlds.requestedAgentsPerWorld = 10;
+    // 4. Every arena against every group size the UI offers, at the finest trail
+    //    setting so the budget clamp is under load throughout. This is the space
+    //    the reported failure lived in: medium arena, twelve agents per world.
     state.physics.trailCellSize =
         vkexp::trailCellSizeForBodyFraction(vkexp::trailCellFractionFinest);
-    driver.restart();
-    stepAndCheck(context, driver, state, "large arena, smallest groups, finest trail");
+    for (const vkexp::WorldSize size :
+         {vkexp::WorldSize::Small, vkexp::WorldSize::Medium, vkexp::WorldSize::Large}) {
+        for (const std::uint32_t agentsPerWorld : {29U, 12U, 10U}) {
+            state.physics.worldSize = size;
+            state.physics.worldRadius = vkexp::worldRadiusForSize(size);
+            state.physics.lightSensorRange = vkexp::lightRangeForWorld(state.physics);
+            state.worlds.requestedAgentsPerWorld = agentsPerWorld;
+            state.physics.trailCellSize =
+                vkexp::trailCellSizeForBodyFraction(vkexp::trailCellFractionFinest);
+            driver.restart();
+            stepAndCheck(context, driver, state,
+                         "arena " + std::to_string(static_cast<int>(size)) + " with " +
+                             std::to_string(agentsPerWorld) + " agents per world");
+        }
+    }
 
     driver.destroyResources();
     std::cout << "Reconfiguration smoke passed on " << context.deviceName() << '\n';

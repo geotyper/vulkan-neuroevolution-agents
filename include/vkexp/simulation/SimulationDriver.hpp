@@ -74,6 +74,7 @@ private:
     void updateGridDescriptors();
     [[nodiscard]] float gridCellSize() const;
     void updateGridDimensions();
+    [[nodiscard]] std::uint64_t trailFieldBudget() const;
     [[nodiscard]] std::uint64_t trailFieldBytes(float cellSize) const;
     void updateTrailDimensions();
     void ensureTrailCapacity();

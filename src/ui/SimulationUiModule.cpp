@@ -255,19 +255,25 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                           static_cast<double>(units::metresToCentimetres(agentBodyRadius * 2.0F)));
     // Resolution is chosen in bodies, not centimetres: what decides whether a
     // setting is useful is how many cells wide a track comes out.
-    constexpr float cellFractions[] = {0.2F, 0.25F, 1.0F / 3.0F, 0.5F, 1.0F};
     constexpr const char* cellLabels[] = {"1/5 body", "1/4 body", "1/3 body", "1/2 body", "1 body"};
-    int cellChoice = 4;
-    for (int index = 0; index < 5; ++index) {
+    constexpr int cellChoiceCount = static_cast<int>(trailCellFractions.size());
+    int cellChoice = cellChoiceCount - 1;
+    for (int index = 0; index < cellChoiceCount; ++index) {
+        const auto slot = static_cast<std::size_t>(index);
         if (std::abs(state_.physics.trailCellSize -
-                     trailCellSizeForBodyFraction(cellFractions[index])) < 0.0005F) {
+                     trailCellSizeForBodyFraction(trailCellFractions[slot])) < 0.0005F) {
             cellChoice = index;
         }
     }
-    if (ImGui::Combo("Trail resolution", &cellChoice, cellLabels, 5)) {
-        state_.physics.trailCellSize = trailCellSizeForBodyFraction(cellFractions[cellChoice]);
+    if (ImGui::Combo("Trail resolution", &cellChoice, cellLabels, cellChoiceCount)) {
+        state_.physics.trailCellSize =
+            trailCellSizeForBodyFraction(trailCellFractions[static_cast<std::size_t>(cellChoice)]);
         state_.controls.resetRequested = true;
     }
+    ImGui::SetItemTooltip("A finer grid is bounded by bandwidth, not memory: the field is read and "
+                          "written in full every step, and there is one per logical world. The "
+                          "driver coarsens the choice when it will not fit, and the line below "
+                          "shows what is actually in force.");
     const std::uint32_t trailWidth =
         trailWidthForWorld(state_.physics.worldRadius, state_.physics.trailCellSize);
     // Memory is the cheap half. The decay pass walks every value of every world

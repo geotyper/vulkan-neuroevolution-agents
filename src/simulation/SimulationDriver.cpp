@@ -343,6 +343,25 @@ float SimulationDriver::gridCellSize() const {
     return gridCellSizeForWorld(config_.gridCellSize, state_.physics.worldRadius);
 }
 
+// The budget the field must fit, capped against what the device actually has.
+std::uint64_t SimulationDriver::trailFieldBudget() const {
+    std::uint64_t deviceLocalBytes = 0;
+    if (physicalDevice_ != VK_NULL_HANDLE) {
+        VkPhysicalDeviceMemoryProperties memory{};
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice_, &memory);
+        for (std::uint32_t index = 0; index < memory.memoryHeapCount; ++index) {
+            if ((memory.memoryHeaps[index].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0) {
+                deviceLocalBytes = std::max(
+                    deviceLocalBytes, static_cast<std::uint64_t>(memory.memoryHeaps[index].size));
+            }
+        }
+    }
+    if (deviceLocalBytes == 0) {
+        return trailFieldByteBudget;
+    }
+    return std::min(trailFieldByteBudget, deviceLocalBytes / trailFieldHeapFraction);
+}
+
 // Bytes the field needs for the arena and world count actually in use.
 std::uint64_t SimulationDriver::trailFieldBytes(const float cellSize) const {
     const auto width =
@@ -356,12 +375,20 @@ void SimulationDriver::updateTrailDimensions() {
     // two hundred worlds asks for gigabytes, and the first version both allocated
     // and cleared the worst case -- largest arena, most worlds -- whatever was
     // actually running, which is what made a resolution change look like a hang.
-    const float finest = trailCellSizeForBodyFraction(trailCellFractionFinest);
-    const float coarsest = trailCellSizeForBodyFraction(trailCellFractionCoarsest);
-    float cellSize = std::clamp(state_.physics.trailCellSize, finest, coarsest);
-    while (trailFieldBytes(cellSize) > trailFieldByteBudget && cellSize < coarsest) {
-        cellSize = std::min(cellSize * 2.0F, coarsest);
+    const std::uint64_t budget = trailFieldBudget();
+    // Walk up the offered resolutions rather than doubling, so whatever survives
+    // is a setting the UI can name back to the user.
+    std::size_t choice = 0;
+    while (choice + 1 < trailCellFractions.size() &&
+           trailCellSizeForBodyFraction(trailCellFractions[choice]) <
+               state_.physics.trailCellSize - 0.0005F) {
+        ++choice;
     }
+    while (choice + 1 < trailCellFractions.size() &&
+           trailFieldBytes(trailCellSizeForBodyFraction(trailCellFractions[choice])) > budget) {
+        ++choice;
+    }
+    const float cellSize = trailCellSizeForBodyFraction(trailCellFractions[choice]);
     state_.physics.trailCellSize = cellSize;
 
     trailWidth_ = trailWidthForWorld(state_.physics.worldRadius, cellSize);
