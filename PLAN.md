@@ -6,6 +6,8 @@
 2. GPU layouts have explicit size/offset assertions and a CPU reference.
 3. Modules exchange published views and state, not ownership of each other's
    implementation details.
+3a. Simulation logic lives in drivers, not in modules: anything needed for an
+   experiment must be reachable without a window.
 4. Add one evolutionary pressure at a time and keep deterministic replay tests.
 5. Prefer measurable behavioral milestones over adding simulation features in
    parallel.
@@ -55,8 +57,9 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [ ] generation timing;
 - [ ] inspect one agent's receptor values, activations, and motor outputs;
 - [ ] render photoreceptor rays;
-- [ ] save/load versioned genome files;
-- [ ] deterministic multi-step CPU/GPU regression cases.
+- [x] save/load versioned genome files;
+- [x] deterministic multi-step CPU/GPU regression cases;
+- [x] accumulated CPU/GPU drift budget that catches sub-tolerance bias.
 
 ### 3. Geometry and navigation
 
@@ -78,6 +81,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [x] recurrent/internal state with explicit reset semantics;
 - [x] energy pickup and nest delivery;
 - [x] outbound/return behavior fitness;
+- [x] runtime ablation switches reachable from the batch runner;
 - [ ] ablation mode comparing reactive and recurrent brains.
 
 ### 5. Emergent communication
@@ -96,11 +100,24 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [x] scenario-owned active dense topology descriptors and recurrent outputs;
 - [ ] pluggable multi-layer/recurrent evaluator implementations;
 - [ ] scenario registry and data-driven experiment configuration;
-- [ ] batch/headless evolution executable;
+- [x] batch/headless evolution executable;
 - [ ] shader hot reload and capture/replay tooling.
+
+## Runners
+
+`vulkan_neuroevolution_agents` drives `SimulationDriver` from the frame loop.
+`vkneuro_headless` drives the same driver from an `ImmediateContext`, so batch
+sweeps and ablations produce results comparable with what the window shows:
+
+```sh
+vkneuro_headless --scenario rotating --generations 200 --csv runs/rotating.csv                  --save-champion runs/rotating-champion.vkng
+vkneuro_headless --scenario forage --generations 200 --no-agent-light --quiet
+```
 
 ## Immediate next step
 
 Add champion replay and receptor visualization before walls. Those tools make
 later failures attributable to perception, control, fitness, or evolution
-instead of only showing that population fitness stopped improving.
+instead of only showing that population fitness stopped improving. The batch
+runner and genome archives are in place, so a champion can now be evolved
+headlessly and replayed in the window.

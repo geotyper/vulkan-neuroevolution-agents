@@ -28,6 +28,15 @@ void GeneticAlgorithm::reset() {
     }
 }
 
+void GeneticAlgorithm::setPopulation(const std::span<const Genome> genomes,
+                                     const std::uint64_t generation) {
+    if (genomes.size() != population_.size()) {
+        throw std::invalid_argument("Loaded genome count must match the configured population");
+    }
+    population_.assign(genomes.begin(), genomes.end());
+    generation_ = generation;
+}
+
 std::size_t GeneticAlgorithm::tournament(const std::span<const float> fitness) {
     std::uniform_int_distribution<std::size_t> candidate{0, fitness.size() - 1};
     std::size_t best = candidate(random_);

@@ -39,6 +39,10 @@ public:
     void reset();
     [[nodiscard]] GenerationSummary evolve(std::span<const float> fitness);
 
+    // Replaces the population, e.g. when resuming from a genome archive. The
+    // count must match populationSize so buffer sizes stay valid.
+    void setPopulation(std::span<const Genome> genomes, std::uint64_t generation);
+
     [[nodiscard]] const std::vector<Genome>& population() const { return population_; }
     [[nodiscard]] std::uint64_t generation() const { return generation_; }
     [[nodiscard]] const EvolutionSettings& settings() const { return settings_; }

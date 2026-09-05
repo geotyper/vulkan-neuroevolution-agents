@@ -43,11 +43,13 @@ public:
     }
     [[nodiscard]] VkCommandBuffer commandBuffer() const { return commandBuffers_[currentFrame_]; }
 
-private:
     // The experiment images are shared by graphics, compute, and ImGui.
-    // One in-flight frame keeps their ownership deterministic.
+    // One in-flight frame keeps their ownership deterministic, and lets modules
+    // write host-visible per-frame data without extra slots. Part of the public
+    // contract so dependants can assert on it.
     static constexpr std::size_t framesInFlight = 1;
 
+private:
     struct QueueFamilies {
         std::optional<std::uint32_t> graphics;
         std::optional<std::uint32_t> present;

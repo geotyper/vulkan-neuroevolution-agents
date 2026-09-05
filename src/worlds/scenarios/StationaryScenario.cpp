@@ -12,6 +12,9 @@ float fitness(const AgentState& agent) {
     return objectiveFitness(agent, completedBeaconPhases(agent));
 }
 
+// Per-trial beacons live in agent.target, so nothing has to reach the GPU.
+ScenarioParameterBlock gpuParameters(const SimulationStep&) { return {}; }
+
 constexpr neuro::BrainShape brain{neuro::Topology::inputCount - neuro::Topology::taskInputCount -
                                       neuro::Topology::recurrentMemoryCount,
                                   neuro::Topology::hiddenCount,
@@ -21,7 +24,7 @@ static_assert(brain.fitsCapacity());
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Stationary", brain, fitness};
+    static constexpr ScenarioDefinition value{"Stationary", brain, fitness, gpuParameters};
     return value;
 }
 

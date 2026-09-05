@@ -157,6 +157,22 @@ struct SimulationStep {
     return beaconVisualRadius * settings.arrivalRadiusMultiplier;
 }
 
+// Opaque per-scenario transport. Each scenario packs and unpacks this block
+// itself on both sides, so adding a scenario never widens the shared structs.
+// Mirrors `ScenarioParameters` in shaders/worlds/scenario_params.glsl.
+struct alignas(16) ScenarioParameterBlock {
+    Float4 floats0;
+    Float4 floats1;
+    std::array<std::uint32_t, 4> integers{};
+};
+
+static_assert(sizeof(ScenarioParameterBlock) == 48);
+static_assert(offsetof(ScenarioParameterBlock, integers) == 32);
+
+// std430-compatible per-step parameters. This lives in a storage buffer rather
+// than push constants: the scenario block already pushes the structure past the
+// 128-byte size Vulkan guarantees for maxPushConstantsSize, and one batched
+// upload per frame costs less than one vkCmdPushConstants per step.
 struct alignas(16) GpuStepParameters {
     float deltaTime{};
     float worldRadius{};
@@ -185,13 +201,13 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t beaconScenario{};
     std::uint32_t beaconPhase{};
     std::uint32_t beaconPhaseChanged{};
-    float beaconMotionValue{}; // rotation angle or random-wander speed
-    float beaconRadiusRatio{};
-    float beaconMotionTime{};
-    float scenarioRate{}; // random teleport probability or forage cargo decay rate
-    std::uint32_t beaconMotionSeed{};
+    std::uint32_t reserved{};
+    ScenarioParameterBlock scenario;
 };
 
-static_assert(sizeof(GpuStepParameters) == 128);
+static_assert(sizeof(GpuStepParameters) == 160);
+static_assert(offsetof(GpuStepParameters, agentCount) == 64);
+static_assert(offsetof(GpuStepParameters, beaconScenario) == 96);
+static_assert(offsetof(GpuStepParameters, scenario) == 112);
 
 } // namespace vkexp

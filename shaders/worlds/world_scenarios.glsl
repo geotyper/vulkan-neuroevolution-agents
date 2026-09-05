@@ -1,3 +1,4 @@
+#include "worlds/scenario_params.glsl"
 #include "worlds/scenario_math.glsl"
 #include "worlds/stationary.glsl"
 #include "worlds/alternating.glsl"
@@ -10,8 +11,7 @@ uint scenarioBeaconCount(uint scenario) {
 }
 
 vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint phase,
-                            float worldRadius, float motionValue, float radiusRatio,
-                            float motionTime, float teleportProbability, uint motionSeed) {
+                            float worldRadius, ScenarioParameters sp) {
     if (scenario == 0u) {
         return stationaryScenarioPosition(agent);
     }
@@ -19,15 +19,13 @@ vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint p
         return alternatingScenarioPosition(beaconIndex, phase, worldRadius);
     }
     if (scenario == 2u) {
-        return rotatingScenarioPosition(agent, worldRadius, motionValue, radiusRatio);
+        return rotatingScenarioPosition(agent, worldRadius, sp);
     }
     if (scenario == 3u) {
         const uint trial = uint(max(agent.target.z, 0.0));
-        return randomMovementScenarioPosition(trial, worldRadius, motionValue, radiusRatio,
-                                              motionTime, teleportProbability, motionSeed);
+        return randomMovementScenarioPosition(trial, worldRadius, sp);
     }
-    return forageHomeScenarioPosition(agent, beaconIndex, worldRadius, motionValue,
-                                      radiusRatio, motionTime, motionSeed);
+    return forageHomeScenarioPosition(agent, beaconIndex, worldRadius, sp);
 }
 
 vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial) {
@@ -41,20 +39,17 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
 }
 
 float scenarioTargetDistance(uint scenario, Agent agent, vec2 position, uint phase,
-                             float worldRadius, float motionValue, float radiusRatio,
-                             float motionTime, float teleportProbability, uint motionSeed) {
+                             float worldRadius, ScenarioParameters sp) {
     if (scenario == 4u) {
         const uint targetIndex = agent.internal.y >= 0.5 ? 1u : 0u;
         return length(scenarioBeaconPosition(scenario, agent, targetIndex, phase, worldRadius,
-                                             motionValue, radiusRatio, motionTime,
-                                             teleportProbability, motionSeed) - position);
+                                             sp) - position);
     }
     float nearest = worldRadius * 4.0;
     for (uint index = 0u; index < scenarioBeaconCount(scenario); ++index) {
         nearest = min(nearest,
                       length(scenarioBeaconPosition(scenario, agent, index, phase, worldRadius,
-                                                    motionValue, radiusRatio, motionTime,
-                                                    teleportProbability, motionSeed) - position));
+                                                    sp) - position));
     }
     return nearest;
 }

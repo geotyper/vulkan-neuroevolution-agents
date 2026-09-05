@@ -1,5 +1,6 @@
 #include "vkexp/compute/ComputeResources.hpp"
 #include "vkexp/evolution/GeneticAlgorithm.hpp"
+#include "vkexp/evolution/GenomeArchive.hpp"
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
@@ -9,8 +10,12 @@
 
 #include <cmath>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -435,6 +440,131 @@ void testWallCollisionPenalty() {
           "Wall collision penalty lowers fitness");
 }
 
+void testGenomeArchiveRoundTrip() {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "vkexp_archive_test" / "population.vkng";
+    std::vector<vkexp::Genome> genomes(3);
+    for (std::size_t index = 0; index < genomes.size(); ++index) {
+        for (std::size_t weight = 0; weight < genomes[index].weights.size(); ++weight) {
+            genomes[index].weights[weight] =
+                std::sin(static_cast<float>(index * 31 + weight) * 0.017F);
+        }
+    }
+    const vkexp::GenomeArchiveMetadata metadata{42, 4, 0xC0FFEEU, 1.5F, 0.25F, 52, 20, 8};
+    vkexp::saveGenomeArchive(path, genomes, metadata);
+
+    const vkexp::GenomeArchive loaded = vkexp::loadGenomeArchive(path);
+    check(loaded.genomes.size() == genomes.size(), "Archive genome count round-trip");
+    check(loaded.metadata.generation == 42, "Archive generation round-trip");
+    check(loaded.metadata.scenario == 4, "Archive scenario round-trip");
+    check(loaded.metadata.seed == 0xC0FFEEU, "Archive seed round-trip");
+    check(closeTo(loaded.metadata.bestFitness, 1.5F), "Archive best fitness round-trip");
+    check(loaded.metadata.brainOutputCount == 8, "Archive brain shape round-trip");
+    bool identical = true;
+    for (std::size_t index = 0; index < genomes.size(); ++index) {
+        identical = identical && loaded.genomes[index].weights == genomes[index].weights;
+    }
+    check(identical, "Archive weights round-trip bit-exactly");
+
+    // A corrupted magic must fail loudly rather than load noise as a population.
+    const std::filesystem::path corrupted = path.parent_path() / "corrupted.vkng";
+    std::filesystem::copy_file(path, corrupted, std::filesystem::copy_options::overwrite_existing);
+    {
+        std::fstream stream{corrupted, std::ios::binary | std::ios::in | std::ios::out};
+        stream.seekp(0);
+        stream.write("XXXX", 4);
+    }
+    bool rejectedMagic = false;
+    try {
+        (void)vkexp::loadGenomeArchive(corrupted);
+    } catch (const vkexp::GenomeArchiveError&) {
+        rejectedMagic = true;
+    }
+    check(rejectedMagic, "Archive rejects a foreign file");
+
+    // Truncation must not yield a half-filled population either.
+    const std::filesystem::path truncated = path.parent_path() / "truncated.vkng";
+    std::filesystem::copy_file(path, truncated, std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::resize_file(truncated, std::filesystem::file_size(truncated) - 16);
+    bool rejectedTruncation = false;
+    try {
+        (void)vkexp::loadGenomeArchive(truncated);
+    } catch (const vkexp::GenomeArchiveError&) {
+        rejectedTruncation = true;
+    }
+    check(rejectedTruncation, "Archive rejects a truncated file");
+
+    std::error_code cleanupError;
+    std::filesystem::remove_all(path.parent_path(), cleanupError);
+}
+
+void testPopulationReload() {
+    const vkexp::EvolutionSettings settings{8, 2, 3, 0.5F, 0.1F, 0.2F, 42U};
+    vkexp::GeneticAlgorithm evolution{settings};
+    std::vector<vkexp::Genome> replacement(settings.populationSize);
+    replacement.front().weights[0] = 3.25F;
+    evolution.setPopulation(replacement, 17);
+    check(evolution.generation() == 17, "Loaded population restores the generation counter");
+    check(closeTo(evolution.population().front().weights[0], 3.25F),
+          "Loaded population replaces the weights");
+
+    bool rejectedMismatch = false;
+    try {
+        const std::vector<vkexp::Genome> wrongSize(settings.populationSize - 1);
+        evolution.setPopulation(wrongSize, 0);
+    } catch (const std::invalid_argument&) {
+        rejectedMismatch = true;
+    }
+    check(rejectedMismatch, "Loaded population size mismatch rejection");
+}
+
+void testStepParameterPacking() {
+    // The GPU step parameters outgrew the 128 bytes Vulkan guarantees for push
+    // constants, which is why they now travel in a storage buffer.
+    check(sizeof(vkexp::GpuStepParameters) > 128,
+          "Step parameters exceed the guaranteed push constant size");
+    check(sizeof(vkexp::ScenarioParameterBlock) == 48, "Scenario block size");
+
+    vkexp::SimulationStep settings{};
+    settings.beaconScenario = vkexp::BeaconScenario::Rotating;
+    settings.beaconRotationAngle = 0.75F;
+    settings.beaconRadiusRatio = 0.6F;
+    const vkexp::ScenarioParameterBlock rotating =
+        vkexp::scenarioDefinition(settings.beaconScenario).gpuParameters(settings);
+    check(closeTo(rotating.floats0.x, 0.75F), "Rotating scenario packs its rotation angle");
+    check(closeTo(rotating.floats0.y, 0.6F), "Rotating scenario packs its radius ratio");
+
+    settings.beaconScenario = vkexp::BeaconScenario::ForageHome;
+    settings.beaconMotionSeed = 0xABCDU;
+    settings.forageCargoDecayRate = 0.11F;
+    const vkexp::ScenarioParameterBlock forage =
+        vkexp::scenarioDefinition(settings.beaconScenario).gpuParameters(settings);
+    check(forage.integers[0] == 0xABCDU, "Forage scenario packs its motion seed");
+    check(closeTo(forage.floats0.w, 0.11F), "Forage scenario packs its cargo decay rate");
+
+    // Stationary beacons live in the agent, so its block must stay empty.
+    settings.beaconScenario = vkexp::BeaconScenario::Stationary;
+    const vkexp::ScenarioParameterBlock stationary =
+        vkexp::scenarioDefinition(settings.beaconScenario).gpuParameters(settings);
+    check(stationary.floats0.x == 0.0F && stationary.integers[0] == 0U,
+          "Stationary scenario sends no scenario parameters");
+}
+
+void testResolvedStepSettings() {
+    vkexp::SimulationStep base{};
+    base.beaconScenario = vkexp::BeaconScenario::AlternatingDiagonals;
+    base.beaconAngularSpeed = 1.0F;
+    constexpr std::uint32_t steps = 100;
+    const vkexp::SimulationStep before = vkexp::resolveStepSettings(base, 10, steps);
+    const vkexp::SimulationStep atFlip = vkexp::resolveStepSettings(base, steps / 2, steps);
+    const vkexp::SimulationStep after = vkexp::resolveStepSettings(base, steps / 2 + 1, steps);
+    check(before.beaconPhase == 0 && !before.beaconPhaseChanged, "Phase before the flip");
+    check(atFlip.beaconPhase == 1 && atFlip.beaconPhaseChanged, "Phase change reported once");
+    check(after.beaconPhase == 1 && !after.beaconPhaseChanged, "Phase after the flip");
+    check(closeTo(atFlip.beaconMotionTime, base.deltaTime * static_cast<float>(steps / 2)),
+          "Resolved motion time follows the step index");
+}
+
 void testGeneticAlgorithm() {
     const vkexp::EvolutionSettings settings{8, 2, 3, 0.5F, 0.1F, 0.2F, 42U};
     vkexp::GeneticAlgorithm evolution{settings};
@@ -463,5 +593,9 @@ int main() {
     testForageCycleAndMemory();
     testWallCollisionPenalty();
     testGeneticAlgorithm();
+    testGenomeArchiveRoundTrip();
+    testPopulationReload();
+    testStepParameterPacking();
+    testResolvedStepSettings();
     return failures == 0 ? 0 : 1;
 }

@@ -126,6 +126,7 @@ add_library(vkneuro_domain STATIC
     src/simulation/Sensors.cpp
     src/simulation/CpuSimulation.cpp
     src/evolution/GeneticAlgorithm.cpp
+    src/evolution/GenomeArchive.cpp
     src/worlds/WorldScenario.cpp
     src/worlds/scenarios/StationaryScenario.cpp
     src/worlds/scenarios/AlternatingScenario.cpp
@@ -137,6 +138,7 @@ target_include_directories(vkneuro_domain PUBLIC include)
 vkexp_enable_warnings(vkneuro_domain)
 
 add_library(vkneuro_simulation STATIC
+    src/simulation/SimulationDriver.cpp
     src/simulation/SimulationModule.cpp
 )
 add_dependencies(vkneuro_simulation vkexp_shaders)
@@ -168,6 +170,11 @@ target_link_libraries(vkneuro_ui
 )
 vkexp_enable_warnings(vkneuro_ui)
 
+add_executable(vkneuro_headless src/headless/main.cpp)
+add_dependencies(vkneuro_headless vkexp_shaders)
+target_link_libraries(vkneuro_headless PRIVATE vkneuro_simulation)
+vkexp_enable_warnings(vkneuro_headless)
+
 add_executable(vulkan_neuroevolution_agents src/main.cpp)
 target_link_libraries(vulkan_neuroevolution_agents PRIVATE
     vkneuro_simulation vkneuro_visualization vkneuro_ui
@@ -184,6 +191,24 @@ if(BUILD_TESTING)
 
     add_test(NAME vkexp_unit_tests COMMAND vkexp_unit_tests)
     add_test(NAME vkexp_cli_help COMMAND vulkan_neuroevolution_agents --help)
+    add_test(NAME vkneuro_headless_help COMMAND vkneuro_headless --help)
+
+    # A short real evolution run: proves the headless path drives the same
+    # driver end to end and that archives round-trip through the runner.
+    add_test(NAME vkneuro_headless_smoke COMMAND vkneuro_headless
+        --scenario forage --generations 2 --steps 24 --population 32
+        --agents-per-world 8 --quiet
+        --save-population ${CMAKE_CURRENT_BINARY_DIR}/headless_population.vkng
+        --save-champion ${CMAKE_CURRENT_BINARY_DIR}/headless_champion.vkng)
+    set_tests_properties(vkneuro_headless_smoke PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_test(NAME vkneuro_headless_resume COMMAND vkneuro_headless
+        --scenario forage --generations 1 --steps 24 --population 32
+        --agents-per-world 8 --quiet
+        --load-population ${CMAKE_CURRENT_BINARY_DIR}/headless_population.vkng)
+    set_tests_properties(vkneuro_headless_resume PROPERTIES
+        SKIP_RETURN_CODE 77
+        DEPENDS vkneuro_headless_smoke)
 
     add_executable(vkexp_compute_smoke tests/compute_smoke.cpp)
     add_dependencies(vkexp_compute_smoke vkexp_shaders)

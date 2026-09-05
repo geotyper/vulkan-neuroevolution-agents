@@ -97,7 +97,8 @@ updated by the final two network outputs.
 ## Architecture
 
 ```text
-vulkan_neuroevolution_agents (composition root)
+vulkan_neuroevolution_agents (windowed composition root)
+vkneuro_headless             (batch composition root)
   |
   +-- vkneuro_domain          no Vulkan dependency
   |     NeuralNetwork         flattened brain contract + CPU evaluator
@@ -109,7 +110,8 @@ vulkan_neuroevolution_agents (composition root)
   |     GeneticAlgorithm      selection/crossover/mutation
   |
   +-- vkneuro_simulation
-  |     SimulationModule      ping-pong state + compute orchestration
+  |     SimulationDriver      population, GA, and per-step dispatch recording
+  |     SimulationModule      frame-loop adapter over the driver
   |     worlds/*.glsl         shared per-scenario shader implementations
   |     agent_grid_*.comp     per-logical-world spatial acceleration
   |     agent_step.comp       RGB sensors + brain + collisions + physics
@@ -133,10 +135,19 @@ The shared contracts are small:
   `ScenarioDefinition` selects its active input/hidden/output counts and fitness
   function; the CPU evaluator and GLSL shader use the same packed layout;
 - module order in `main.cpp` is the composition graph: compute publishes the
-  buffer, rendering reads it, and ImGui composites the viewport.
+  buffer, rendering reads it, and ImGui composites the viewport;
+- `GpuStepParameters` carries only what every scenario needs, plus a 48-byte
+  `ScenarioParameterBlock` each scenario packs and unpacks itself. It travels in
+  a storage buffer indexed by step rather than in push constants, so adding a
+  scenario neither widens a shared struct nor approaches the 128-byte push
+  constant size Vulkan guarantees.
 
 This lets a new sensor model, brain evaluator, selection policy, renderer, or
 UI replace its counterpart without changing the application lifecycle.
+
+`SimulationDriver` holds the experiment; `SimulationModule` only maps frame
+callbacks onto it. The batch runner drives the same driver from an
+`ImmediateContext`, so a sweep and the window run identical code.
 
 The four beacon-following scenarios currently use a reactive `48 -> 20 -> 6`
 brain. `Forage + home` declares `52 -> 20 -> 8`, adding task state and two
@@ -151,10 +162,29 @@ compares every float with a small tolerance for both world shapes. A two-agent
 GPU test verifies physical separation, tactile contact, and reception of an
 emitted red signal, then verifies that the same colocated agents cannot collide
 or exchange light across a logical-world boundary. Another parity case covers
-the exact step at which the active beacon diagonal changes. Pure CPU tests cover
-world scaling, beacon layouts, logical-world partition mapping, channel
-mapping, weight layout, neural evaluation, elite preservation, and reusable
-compute validation.
+the exact step at which the active beacon diagonal changes.
+
+On top of that, every scenario runs a 540-step trajectory regression:
+
+- **lockstep parity.** Each step feeds the CPU reference state to the GPU and
+  compares one step of both, so the shader is checked at hundreds of genuinely
+  reachable states -- including the alternating phase flip and the forage home
+  relocation epoch -- without the chaotic drift a free-running trajectory would
+  accumulate through tanh feedback.
+- **accumulated drift budget.** Lockstep cannot see a systematic bias smaller
+  than the per-step tolerance, because resetting to the CPU state each step stops
+  it accumulating. Summing the signed per-step differences restores that:
+  rounding noise cancels to ~1e-4 over 540 steps, while a changed shader constant
+  reaches ~3e-2. The budget sits an order of magnitude above the noise.
+- **coverage assertions.** A run whose beacon stayed out of sensor range, or whose
+  alternating phase never flipped, fails rather than passing vacuously.
+- **determinism.** 192 agents sharing one spatial grid are stepped twice; the
+  results must be bit-identical, which is where a grid race would surface.
+
+Pure CPU tests cover world scaling, beacon layouts, logical-world partition
+mapping, channel mapping, weight layout, neural evaluation, elite preservation,
+scenario parameter packing, resolved step settings, genome archive round-trips
+including corruption and truncation rejection, and reusable compute validation.
 
 ## Build and run
 
@@ -175,13 +205,39 @@ Disable validation if the validation layer is unavailable:
 ./build/debug/vulkan_neuroevolution_agents --no-validation
 ```
 
-The debug suite contains pure unit tests, a CLI smoke test, and a headless
-Vulkan test. The latter returns CTest's skip code when no compute device exists.
+### Batch runs
+
+`vkneuro_headless` evolves without a window, which is what makes overnight runs,
+parameter sweeps and ablation comparisons possible:
+
+```bash
+./build/release/vkneuro_headless --scenario rotating --generations 200 \
+    --csv runs/rotating.csv --save-champion runs/rotating-champion.vkng
+
+# Signal-off ablation against the same seed.
+./build/release/vkneuro_headless --scenario forage --generations 200 --seed 7 \
+    --no-agent-light --csv runs/forage-nolight.csv
+
+# Resume a saved population.
+./build/release/vkneuro_headless --scenario forage --generations 50 \
+    --load-population runs/forage-population.vkng
+```
+
+`--help` lists every option. Genome archives are versioned little-endian files
+that record the generation, scenario, seed, fitness and brain shape, and refuse
+to load into a build with a different weight count.
+
+The debug suite contains pure unit tests, CLI smoke tests, two short real
+headless evolution runs covering the archive round trip, and a headless Vulkan
+parity test. The Vulkan-dependent ones return CTest's skip code when no compute
+device exists.
 
 ## Extension points
 
 The next world feature should enter through a focused contract:
 
+- a new scenario adds one `.cpp`/`.glsl` pair plus its parameter block; it does
+  not touch the shared step parameters;
 - walls and occlusion extend sensor/world queries;
 - richer recurrent cells or gated memory can extend the two-value recurrent state;
 - internal walls and occlusion extend grid-backed world queries;

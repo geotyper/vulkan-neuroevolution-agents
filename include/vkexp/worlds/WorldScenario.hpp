@@ -23,13 +23,24 @@ struct ActiveBeacons {
 
 using ScenarioFitness = float (*)(const AgentState& agent);
 
+// Packs the scenario's own GPU parameters. `settings` must already be resolved
+// for the step being packed (see resolveStepSettings).
+using ScenarioGpuPacker = ScenarioParameterBlock (*)(const SimulationStep& settings);
+
 struct ScenarioDefinition {
     const char* name{};
     neuro::BrainShape brain{};
     ScenarioFitness fitness{};
+    ScenarioGpuPacker gpuParameters{};
 };
 
 [[nodiscard]] const ScenarioDefinition& scenarioDefinition(BeaconScenario scenario);
+
+// Resolves the step-dependent fields (beacon phase, rotation angle, motion time)
+// for `step` within a generation. Simulation and visualization share this so the
+// rendered beacon cannot drift away from the simulated one.
+[[nodiscard]] SimulationStep resolveStepSettings(const SimulationStep& base, std::uint32_t step,
+                                                 std::uint32_t stepsPerGeneration);
 
 [[nodiscard]] Float4 stationaryBeaconPosition(std::uint32_t trial, float worldRadius);
 [[nodiscard]] Float4 homeBeaconPosition(const AgentState& agent, const SimulationStep& settings);

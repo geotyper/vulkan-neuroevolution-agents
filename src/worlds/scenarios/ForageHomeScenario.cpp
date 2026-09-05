@@ -18,13 +18,22 @@ float fitness(const AgentState& agent) {
     return objectiveFitness(agent, completedForageCycles(agent));
 }
 
+// floats0 = {resource rotation angle, orbit radius ratio, motion time, cargo decay rate},
+// integers[0] = motion seed. Unpacked by shaders/worlds/forage_home.glsl.
+ScenarioParameterBlock gpuParameters(const SimulationStep& settings) {
+    return {{settings.beaconRotationAngle, settings.beaconRadiusRatio, settings.beaconMotionTime,
+             settings.forageCargoDecayRate},
+            {},
+            {settings.beaconMotionSeed, 0U, 0U, 0U}};
+}
+
 constexpr neuro::BrainShape brain = neuro::maximumBrainShape;
 static_assert(brain.fitsCapacity());
 
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Forage + home", brain, fitness};
+    static constexpr ScenarioDefinition value{"Forage + home", brain, fitness, gpuParameters};
     return value;
 }
 

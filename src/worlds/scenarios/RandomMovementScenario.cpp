@@ -14,6 +14,15 @@ float fitness(const AgentState& agent) {
     return objectiveFitness(agent, completedBeaconPhases(agent));
 }
 
+// floats0 = {wander speed, roam radius ratio, motion time, teleport probability},
+// integers[0] = motion seed. Unpacked by shaders/worlds/random_movement.glsl.
+ScenarioParameterBlock gpuParameters(const SimulationStep& settings) {
+    return {{settings.beaconRandomSpeed, settings.beaconRadiusRatio, settings.beaconMotionTime,
+             settings.beaconTeleportProbability},
+            {},
+            {settings.beaconMotionSeed, 0U, 0U, 0U}};
+}
+
 constexpr neuro::BrainShape brain{neuro::Topology::inputCount - neuro::Topology::taskInputCount -
                                       neuro::Topology::recurrentMemoryCount,
                                   neuro::Topology::hiddenCount,
@@ -66,7 +75,7 @@ Float4 beaconPosition(const std::uint32_t trial, const SimulationStep& settings)
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Random movement", brain, fitness};
+    static constexpr ScenarioDefinition value{"Random movement", brain, fitness, gpuParameters};
     return value;
 }
 

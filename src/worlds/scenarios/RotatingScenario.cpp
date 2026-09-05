@@ -12,6 +12,12 @@ float fitness(const AgentState& agent) {
     return objectiveFitness(agent, completedBeaconPhases(agent));
 }
 
+// floats0 = {rotation angle, orbit radius ratio, unused, unused}.
+// Unpacked by rotatingScenarioPosition in shaders/worlds/rotating.glsl.
+ScenarioParameterBlock gpuParameters(const SimulationStep& settings) {
+    return {{settings.beaconRotationAngle, settings.beaconRadiusRatio, 0.0F, 0.0F}, {}, {}};
+}
+
 constexpr neuro::BrainShape brain{neuro::Topology::inputCount - neuro::Topology::taskInputCount -
                                       neuro::Topology::recurrentMemoryCount,
                                   neuro::Topology::hiddenCount,
@@ -21,7 +27,7 @@ static_assert(brain.fitsCapacity());
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Rotating", brain, fitness};
+    static constexpr ScenarioDefinition value{"Rotating", brain, fitness, gpuParameters};
     return value;
 }
 

@@ -1,3 +1,6 @@
+// floats0 = {wander speed, roam radius ratio, motion time, teleport probability},
+// integers[0] = motion seed.
+// Packed by gpuParameters in src/worlds/scenarios/RandomMovementScenario.cpp.
 bool randomMovementTeleportSegment(uint segment, uint trial, float teleportProbability,
                                    uint motionSeed) {
     if (segment == 0u || teleportProbability <= 0.0) {
@@ -8,10 +11,10 @@ bool randomMovementTeleportSegment(uint segment, uint trial, float teleportProba
     return scenarioRandom01(eventKey) < teleportProbability;
 }
 
-vec2 randomMovementScenarioPosition(uint trial, float worldRadius, float motionValue,
-                                    float radiusRatio, float motionTime,
-                                    float teleportProbability, uint motionSeed) {
-    const float clampedTime = max(motionTime, 0.0);
+vec2 randomMovementScenarioPosition(uint trial, float worldRadius, ScenarioParameters sp) {
+    const float teleportProbability = sp.floats0.w;
+    const uint motionSeed = sp.integers.x;
+    const float clampedTime = max(sp.floats0.z, 0.0);
     const uint segment = uint(floor(clampedTime / 3.0));
     uint epoch = 0u;
     for (uint candidate = segment; candidate > 0u; --candidate) {
@@ -21,8 +24,8 @@ vec2 randomMovementScenarioPosition(uint trial, float worldRadius, float motionV
         }
     }
     const float localTime = clampedTime - float(epoch) * 3.0;
-    const float roamRadius = worldRadius * radiusRatio;
-    const float scaledTime = localTime * motionValue / max(roamRadius, 0.001);
+    const float roamRadius = worldRadius * sp.floats0.y;
+    const float scaledTime = localTime * sp.floats0.x / max(roamRadius, 0.001);
     const uint key = motionSeed ^ (trial * 0x9e3779b9u) ^ (epoch * 0x85ebca6bu);
     const float phase0 = scenarioRandom01(key) * Tau;
     const float phase1 = scenarioRandom01(key ^ 0x68bc21ebu) * Tau;

@@ -1,6 +1,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
+#include "worlds/scenario_params.glsl"
+
 struct Agent {
     vec4 pose;
     vec4 motion;
@@ -28,14 +30,11 @@ layout(push_constant) uniform DrawParameters {
     uint worldShape;
     uint beaconScenario;
     uint beaconPhase;
-    float beaconMotionValue;
-    float beaconRadiusRatio;
-    float beaconMotionTime;
-    float beaconTeleportProbability;
-    uint beaconMotionSeed;
     uint selectedWorld;
     uint agentsPerWorld;
     uint trialsPerGenome;
+    uint reserved;
+    ScenarioParameters scenario;
 } params;
 
 #include "worlds/world_scenarios.glsl"
@@ -84,11 +83,8 @@ void main() {
         bodyColor = mix(bodyColor, vec3(1.0, 0.95, 0.35), agentContact * 0.85);
         color = vec4(bodyColor, params.opacity);
     } else if (params.mode == 1) {
-        world = scenarioBeaconPosition(
-                    params.beaconScenario, agent, gl_InstanceIndex, params.beaconPhase,
-                    params.worldRadius, params.beaconMotionValue, params.beaconRadiusRatio,
-                    params.beaconMotionTime, params.beaconTeleportProbability,
-                    params.beaconMotionSeed) +
+        world = scenarioBeaconPosition(params.beaconScenario, agent, gl_InstanceIndex,
+                                       params.beaconPhase, params.worldRadius, params.scenario) +
                 circleVertex(gl_VertexIndex, BeaconRadius, 16);
         color = vec4(scenarioBeaconColor(params.beaconScenario, gl_InstanceIndex,
                                          params.beaconPhase, trial),

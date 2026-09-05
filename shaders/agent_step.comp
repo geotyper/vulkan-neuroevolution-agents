@@ -1,6 +1,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
+#include "worlds/scenario_params.glsl"
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 const uint LightReceptorCount = 7;
@@ -43,7 +45,11 @@ layout(std430, set = 0, binding = 4) readonly buffer GridLinks {
     int gridNext[];
 };
 
-layout(push_constant) uniform StepParameters {
+// Step parameters live in a storage buffer indexed by step rather than in push
+// constants: with the scenario block the structure exceeds the 128 bytes Vulkan
+// guarantees for maxPushConstantsSize. Mirrors GpuStepParameters in
+// include/vkexp/simulation/AgentTypes.hpp.
+struct StepParameters {
     float deltaTime;
     float worldRadius;
     float thrust;
@@ -71,12 +77,20 @@ layout(push_constant) uniform StepParameters {
     uint beaconScenario;
     uint beaconPhase;
     uint beaconPhaseChanged;
-    float beaconMotionValue;
-    float beaconRadiusRatio;
-    float beaconMotionTime;
-    float scenarioRate;
-    uint beaconMotionSeed;
-} params;
+    uint reserved;
+    ScenarioParameters scenario;
+};
+
+layout(std430, set = 0, binding = 5) readonly buffer StepParameterBlocks {
+    StepParameters stepParameters[];
+};
+
+layout(push_constant) uniform StepSelector {
+    uint stepIndex;
+} selector;
+
+// Assigned once at the top of main; every helper below reads it.
+StepParameters params;
 
 #include "worlds/world_scenarios.glsl"
 
@@ -85,10 +99,8 @@ uint activeBeaconCount() {
 }
 
 vec2 activeBeaconPosition(Agent agent, uint beaconIndex) {
-    return scenarioBeaconPosition(
-        params.beaconScenario, agent, beaconIndex, params.beaconPhase, params.worldRadius,
-        params.beaconMotionValue, params.beaconRadiusRatio, params.beaconMotionTime,
-        params.scenarioRate, params.beaconMotionSeed);
+    return scenarioBeaconPosition(params.beaconScenario, agent, beaconIndex, params.beaconPhase,
+                                 params.worldRadius, params.scenario);
 }
 
 vec3 activeBeaconColor(uint beaconIndex, uint trial) {
@@ -96,10 +108,8 @@ vec3 activeBeaconColor(uint beaconIndex, uint trial) {
 }
 
 float nearestBeaconDistance(Agent agent, vec2 position) {
-    return scenarioTargetDistance(
-        params.beaconScenario, agent, position, params.beaconPhase, params.worldRadius,
-        params.beaconMotionValue, params.beaconRadiusRatio, params.beaconMotionTime,
-        params.scenarioRate, params.beaconMotionSeed);
+    return scenarioTargetDistance(params.beaconScenario, agent, position, params.beaconPhase,
+                                  params.worldRadius, params.scenario);
 }
 
 float rangeFalloff(float distanceToLight) {
@@ -142,6 +152,7 @@ uint contactSector(vec2 direction, float agentAngle) {
 
 void main() {
     const uint id = gl_GlobalInvocationID.x;
+    params = stepParameters[selector.stepIndex];
     if (id >= params.agentCount) {
         return;
     }
@@ -182,7 +193,7 @@ void main() {
         agent.metrics.y = agent.metrics.x;
     }
     if (params.beaconScenario == 4 && agent.internal.y >= 0.5 &&
-        forageHomeScenarioRelocated(params.beaconMotionTime, params.deltaTime)) {
+        forageHomeScenarioRelocated(params.scenario, params.deltaTime)) {
         agent.metrics.w += max(agent.metrics.x - agent.metrics.y, 0.0);
         agent.metrics.x = nearestBeaconDistance(agent, agent.pose.xy);
         agent.metrics.y = agent.metrics.x;
@@ -394,7 +405,9 @@ void main() {
     agent.metrics.z += motorCost + signalCost;
     if (params.beaconScenario == 4) {
         if (agent.internal.y >= 0.5) {
-            agent.internal.x = max(0.0, agent.internal.x - params.scenarioRate * params.deltaTime);
+            agent.internal.x =
+                max(0.0, agent.internal.x -
+                             forageHomeScenarioCargoDecayRate(params.scenario) * params.deltaTime);
         }
         if (distance < params.arrivalRadius) {
             agent.metrics.w += max(agent.metrics.x - agent.metrics.y, 0.0);

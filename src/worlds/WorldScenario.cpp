@@ -91,4 +91,16 @@ float beaconRotationAngleForStep(const float angularSpeed, const float deltaTime
     return worlds::rotating::angleForStep(angularSpeed, deltaTime, step);
 }
 
+SimulationStep resolveStepSettings(const SimulationStep& base, const std::uint32_t step,
+                                   const std::uint32_t stepsPerGeneration) {
+    SimulationStep resolved = base;
+    resolved.beaconPhase = beaconPhaseForStep(base.beaconScenario, step, stepsPerGeneration);
+    resolved.beaconPhaseChanged = base.beaconScenario == BeaconScenario::AlternatingDiagonals &&
+                                  stepsPerGeneration != 0 && step == stepsPerGeneration / 2;
+    resolved.beaconRotationAngle =
+        beaconRotationAngleForStep(base.beaconAngularSpeed, base.deltaTime, step);
+    resolved.beaconMotionTime = base.deltaTime * static_cast<float>(step);
+    return resolved;
+}
+
 } // namespace vkexp

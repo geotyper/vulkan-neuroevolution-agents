@@ -20,16 +20,14 @@ struct DrawParameters {
     std::uint32_t worldShape{};
     std::uint32_t beaconScenario{};
     std::uint32_t beaconPhase{};
-    float beaconMotionValue{};
-    float beaconRadiusRatio{};
-    float beaconMotionTime{};
-    float beaconTeleportProbability{};
-    std::uint32_t beaconMotionSeed{};
     std::uint32_t selectedWorld{};
     std::uint32_t agentsPerWorld{};
     std::uint32_t trialsPerGenome{};
+    std::uint32_t reserved{};
+    ScenarioParameterBlock scenario;
 };
-static_assert(sizeof(DrawParameters) == 64);
+static_assert(sizeof(DrawParameters) == 96);
+static_assert(offsetof(DrawParameters, scenario) == 48);
 
 } // namespace
 
@@ -178,27 +176,24 @@ void AgentRenderer::onUpdate(AppContext& context, const FrameInfo&) {
 void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, const float scaleY,
                          const float worldRadius, const std::uint32_t mode, const float opacity,
                          const std::uint32_t vertices, const std::uint32_t instances) const {
+    // Shared with the simulation so the drawn beacon cannot drift from the
+    // simulated one: same resolver, same scenario packer.
+    const SimulationStep settings = resolveStepSettings(state_.physics, state_.statistics.step,
+                                                        state_.controls.stepsPerGeneration);
     const DrawParameters parameters{
         scaleX,
         scaleY,
         worldRadius,
         opacity,
         mode,
-        static_cast<std::uint32_t>(state_.physics.worldShape),
-        static_cast<std::uint32_t>(state_.physics.beaconScenario),
-        beaconPhaseForStep(state_.physics.beaconScenario, state_.statistics.step,
-                           state_.controls.stepsPerGeneration),
-        state_.physics.beaconScenario == BeaconScenario::RandomMovement
-            ? state_.physics.beaconRandomSpeed
-            : beaconRotationAngleForStep(state_.physics.beaconAngularSpeed,
-                                         state_.physics.deltaTime, state_.statistics.step),
-        state_.physics.beaconRadiusRatio,
-        state_.physics.deltaTime * static_cast<float>(state_.statistics.step),
-        state_.physics.beaconTeleportProbability,
-        static_cast<std::uint32_t>(state_.statistics.generation),
+        static_cast<std::uint32_t>(settings.worldShape),
+        static_cast<std::uint32_t>(settings.beaconScenario),
+        settings.beaconPhase,
         state_.worlds.selectedWorld,
         state_.worlds.agentsPerWorld,
-        state_.agents.trialsPerGenome};
+        state_.agents.trialsPerGenome,
+        0U,
+        scenarioDefinition(settings.beaconScenario).gpuParameters(settings)};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(parameters), &parameters);
     vkCmdDraw(commands, vertices, instances, 0, 0);

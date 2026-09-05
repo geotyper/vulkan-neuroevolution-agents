@@ -9,6 +9,9 @@ float fitness(const AgentState& agent) {
     return objectiveFitness(agent, completedBeaconPhases(agent));
 }
 
+// Diagonal positions derive from the world radius and the shared beacon phase.
+ScenarioParameterBlock gpuParameters(const SimulationStep&) { return {}; }
+
 constexpr neuro::BrainShape brain{neuro::Topology::inputCount - neuro::Topology::taskInputCount -
                                       neuro::Topology::recurrentMemoryCount,
                                   neuro::Topology::hiddenCount,
@@ -18,7 +21,8 @@ static_assert(brain.fitsCapacity());
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Alternating diagonals", brain, fitness};
+    static constexpr ScenarioDefinition value{"Alternating diagonals", brain, fitness,
+                                              gpuParameters};
     return value;
 }
 
