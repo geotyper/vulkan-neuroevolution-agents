@@ -387,26 +387,29 @@ void SimulationDriver::ensureTrailCapacity() {
 }
 
 void SimulationDriver::updateTrailDescriptors() {
+    // Every set that binds the field, mirroring updateGridDescriptors. Missing
+    // the step sets here is what made a world-size change fault: the field was
+    // reallocated, decay and deposit followed it, and agent_step kept reading the
+    // buffer that had just been freed.
     if (trailDecayDescriptorSet_ != VK_NULL_HANDLE) {
         DescriptorSetWriter{}
             .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
                          trailField_.size())
             .update(device_, trailDecayDescriptorSet_);
     }
-    for (std::uint32_t readIndex = 0; readIndex < 2; ++readIndex) {
-        if (trailDepositDescriptorSets_[readIndex] == VK_NULL_HANDLE) {
-            continue;
+    for (std::size_t index = 0; index < stepDescriptorSets_.size(); ++index) {
+        if (stepDescriptorSets_[index] != VK_NULL_HANDLE) {
+            DescriptorSetWriter{}
+                .writeBuffer(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
+                             trailField_.size())
+                .update(device_, stepDescriptorSets_[index]);
         }
-        const VkBuffer readBuffer =
-            readIndex == 0 ? agentBuffers_.read().buffer() : agentBuffers_.write().buffer();
-        DescriptorSetWriter{}
-            .writeBuffer(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, readBuffer, 0,
-                         agentBuffers_.read().size())
-            .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
-                         trailField_.size())
-            .writeBuffer(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stepParameterBuffer_.buffer(), 0,
-                         stepParameterBuffer_.size())
-            .update(device_, trailDepositDescriptorSets_[readIndex]);
+        if (trailDepositDescriptorSets_[index] != VK_NULL_HANDLE) {
+            DescriptorSetWriter{}
+                .writeBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, trailField_.buffer(), 0,
+                             trailField_.size())
+                .update(device_, trailDepositDescriptorSets_[index]);
+        }
     }
 }
 

@@ -245,6 +245,11 @@ On top of that, every scenario runs a 540-step trajectory regression:
 - **trail coupling.** A mark is written under one antenna tip and the agent has
   to turn the way that tip is wired. A shader feeding every tip the same cell
   passes every other test and fails this one.
+- **reconfiguration.** The arena size, the group size and the trail resolution
+  are walked through the real driver, with a generation run after each change.
+  These resize GPU buffers under a running simulation, and a stale descriptor
+  there faults the device rather than returning a wrong number, so the test
+  carries a timeout as part of its assertion.
 - **step-rate independence.** An agent is driven into a wall and held there for
   two simulated seconds at 30, 60, 120, 240 and 480 Hz. The accumulated penalty
   has to stay within 25% of the 60 Hz value while the step count changes 16x,

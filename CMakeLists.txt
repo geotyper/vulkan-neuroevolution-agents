@@ -231,4 +231,19 @@ if(BUILD_TESTING)
     vkexp_enable_warnings(vkexp_compute_smoke)
     add_test(NAME vkexp_compute_smoke COMMAND vkexp_compute_smoke)
     set_tests_properties(vkexp_compute_smoke PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(vkneuro_reconfiguration_smoke tests/reconfiguration_smoke.cpp)
+    add_dependencies(vkneuro_reconfiguration_smoke vkexp_shaders)
+    target_link_libraries(vkneuro_reconfiguration_smoke PRIVATE vkneuro_simulation)
+    target_compile_definitions(vkneuro_reconfiguration_smoke PRIVATE
+        VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
+    )
+    vkexp_enable_warnings(vkneuro_reconfiguration_smoke)
+    add_test(NAME vkneuro_reconfiguration_smoke COMMAND vkneuro_reconfiguration_smoke)
+    # A reconfiguration bug shows up as a hang, not as a wrong answer, so the
+    # timeout is part of the assertion rather than a safety net.
+    set_tests_properties(vkneuro_reconfiguration_smoke PROPERTIES
+        SKIP_RETURN_CODE 77
+        TIMEOUT 120
+    )
 endif()
