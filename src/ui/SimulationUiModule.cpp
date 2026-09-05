@@ -253,28 +253,34 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                           static_cast<double>(units::metresToCentimetres(
                               state_.physics.trailCellSize * state_.physics.trailRenderWidth)),
                           static_cast<double>(units::metresToCentimetres(agentBodyRadius * 2.0F)));
-    constexpr float cellSizes[] = {0.02F, 0.04F, 0.06F, 0.08F};
-    constexpr const char* cellLabels[] = {"2 cm", "4 cm", "6 cm", "8 cm"};
-    int cellChoice = 2;
-    for (int index = 0; index < 4; ++index) {
-        if (std::abs(state_.physics.trailCellSize - cellSizes[index]) < 0.001F) {
+    // Resolution is chosen in bodies, not centimetres: what decides whether a
+    // setting is useful is how many cells wide a track comes out.
+    constexpr float cellFractions[] = {0.2F, 0.25F, 1.0F / 3.0F, 0.5F, 1.0F};
+    constexpr const char* cellLabels[] = {"1/5 body", "1/4 body", "1/3 body", "1/2 body", "1 body"};
+    int cellChoice = 4;
+    for (int index = 0; index < 5; ++index) {
+        if (std::abs(state_.physics.trailCellSize -
+                     trailCellSizeForBodyFraction(cellFractions[index])) < 0.0005F) {
             cellChoice = index;
         }
     }
-    if (ImGui::Combo("Trail resolution", &cellChoice, cellLabels, 4)) {
-        state_.physics.trailCellSize = cellSizes[cellChoice];
+    if (ImGui::Combo("Trail resolution", &cellChoice, cellLabels, 5)) {
+        state_.physics.trailCellSize = trailCellSizeForBodyFraction(cellFractions[cellChoice]);
         state_.controls.resetRequested = true;
     }
     const std::uint32_t trailWidth =
         trailWidthForWorld(state_.physics.worldRadius, state_.physics.trailCellSize);
     // Memory is the cheap half. The decay pass walks every value of every world
     // on every step, so the traffic line is the one that decides whether a fine
-    // grid is affordable at this world count.
+    // grid is affordable at this world count. The driver coarsens the choice on
+    // its own if it would not fit, so the label can disagree with the request.
     const double fieldBytes = static_cast<double>(trailWidth) * trailWidth *
                               trail::kernel::TrailChannels * sizeof(std::uint32_t) *
                               state_.worlds.worldCount;
-    ImGui::TextDisabled("%u x %u cells per world, %.0f MB total", trailWidth, trailWidth,
-                        fieldBytes / (1024.0 * 1024.0));
+    ImGui::TextDisabled(
+        "%.1f cm cells, %u x %u per world, %.0f MB total",
+        static_cast<double>(units::metresToCentimetres(state_.physics.trailCellSize)), trailWidth,
+        trailWidth, fieldBytes / (1024.0 * 1024.0));
     ImGui::TextDisabled("decay traffic %.0f MB per step", 2.0 * fieldBytes / (1024.0 * 1024.0));
     ImGui::SeparatorText("Show");
     ImGui::Checkbox("Trails", &state_.display.trail);

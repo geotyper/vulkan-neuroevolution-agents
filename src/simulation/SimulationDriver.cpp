@@ -91,8 +91,8 @@ void SimulationDriver::createStepResources() {
     updateWorldLayout();
     updateGridDimensions();
     ensureGridCapacity();
-    ensureTrailCapacity();
     updateTrailDimensions();
+    ensureTrailCapacity();
     const VkDeviceSize gridLinkBytes = sizeof(std::int32_t) * agentCount;
     gridNext_.create(physicalDevice_, device_, {gridLinkBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT});
 
@@ -343,33 +343,47 @@ float SimulationDriver::gridCellSize() const {
     return gridCellSizeForWorld(config_.gridCellSize, state_.physics.worldRadius);
 }
 
+// Bytes the field needs for the arena and world count actually in use.
+std::uint64_t SimulationDriver::trailFieldBytes(const float cellSize) const {
+    const auto width =
+        static_cast<std::uint64_t>(trailWidthForWorld(state_.physics.worldRadius, cellSize));
+    return width * width * trail::kernel::TrailChannels * sizeof(std::uint32_t) *
+           state_.worlds.worldCount;
+}
+
 void SimulationDriver::updateTrailDimensions() {
-    trailWidth_ = trailWidthForWorld(state_.physics.worldRadius, state_.physics.trailCellSize);
+    // Coarsen until the field fits the budget. A fine grid over a large arena and
+    // two hundred worlds asks for gigabytes, and the first version both allocated
+    // and cleared the worst case -- largest arena, most worlds -- whatever was
+    // actually running, which is what made a resolution change look like a hang.
+    const float finest = trailCellSizeForBodyFraction(trailCellFractionFinest);
+    const float coarsest = trailCellSizeForBodyFraction(trailCellFractionCoarsest);
+    float cellSize = std::clamp(state_.physics.trailCellSize, finest, coarsest);
+    while (trailFieldBytes(cellSize) > trailFieldByteBudget && cellSize < coarsest) {
+        cellSize = std::min(cellSize * 2.0F, coarsest);
+    }
+    state_.physics.trailCellSize = cellSize;
+
+    trailWidth_ = trailWidthForWorld(state_.physics.worldRadius, cellSize);
     trailCellsPerWorld_ = trailWidth_ * trailWidth_;
+    trailActiveBytes_ = static_cast<VkDeviceSize>(trailFieldBytes(cellSize));
     state_.trail = {trailField_.buffer(), trailField_.size(), trailWidth_, trailCellsPerWorld_};
 }
 
 void SimulationDriver::ensureTrailCapacity() {
-    // Sized once for the largest arena and the most logical worlds the population
-    // can be split into. Unlike the neighbour grid this buffer is also read by the
-    // renderer, which writes its descriptor once, so a later reallocation would
-    // leave the renderer pointing at freed memory. Never growing it is cheaper
-    // than teaching two modules to renegotiate.
-    const std::uint32_t maximumWidth =
-        trailWidthForWorld(worldRadiusForSize(WorldSize::Large), state_.physics.trailCellSize);
-    const auto genomeCount = static_cast<std::uint32_t>(evolution_.population().size());
-    const std::uint32_t maximumWorlds =
-        logicalWorldCount(genomeCount, minimumAgentsPerWorld, config_.trialsPerGenome);
-    const VkDeviceSize requiredBytes = sizeof(std::uint32_t) * maximumWidth * maximumWidth *
-                                       trail::kernel::TrailChannels * maximumWorlds;
-    if (trailField_.size() >= requiredBytes) {
+    // Sized for what is running, not for the worst case the settings could reach.
+    // Every path that changes the arena, the world count or the resolution goes
+    // through a reset that waits for the device to be idle first, so growing here
+    // is safe; the renderer notices the new handle and rewrites its own descriptor.
+    if (trailActiveBytes_ > 0 && trailField_.size() >= trailActiveBytes_) {
         return;
     }
     trailField_.reset();
     trailField_.create(
         physicalDevice_, device_,
-        {requiredBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
+        {trailActiveBytes_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT});
     updateTrailDescriptors();
+    state_.trail = {trailField_.buffer(), trailField_.size(), trailWidth_, trailCellsPerWorld_};
 }
 
 void SimulationDriver::updateTrailDescriptors() {
@@ -422,8 +436,8 @@ void SimulationDriver::refreshGridForWorldSize() {
     updateWorldLayout();
     ensureGridCapacity();
     updateGridDimensions();
-    ensureTrailCapacity();
     updateTrailDimensions();
+    ensureTrailCapacity();
 }
 
 void SimulationDriver::ensureGridCapacity() {
@@ -532,7 +546,7 @@ std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
                      VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
     if (trailClearPending_) {
-        vkCmdFillBuffer(commands, trailField_.buffer(), 0, trailField_.size(), 0);
+        vkCmdFillBuffer(commands, trailField_.buffer(), 0, trailActiveBytes_, 0);
         cmdBufferBarrier(commands, trailField_.buffer(), VK_PIPELINE_STAGE_2_CLEAR_BIT,
                          VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                          VK_ACCESS_2_SHADER_STORAGE_READ_BIT |

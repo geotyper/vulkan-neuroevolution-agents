@@ -25,20 +25,12 @@ const uint TrailChannels = 3u; // RGB
 const float TrailFixedPointScale = 65536.0f;
 const uint TrailCellCeiling = 1u << 28;
 
-// Ground resolution in metres. Runtime-settable, but bounded at both ends and
-// for different reasons.
-//
-// The coarse end is a correctness bound: the three antenna tips have to land in
-// different cells for a reading to carry a gradient, and BrainAntennaLength and
-// BrainAntennaHalfSpread put the outer tips 15 cm apart, so a cell much past
-// 8 cm collapses the three readings into one number.
-//
-// The fine end is a cost bound, and the cost is bandwidth rather than memory:
-// the decay pass touches every value of every world on every step, so halving
-// the cell size quadruples that traffic. The UI prints both numbers.
-const float TrailCellSizeDefault = 0.06f;
-const float TrailCellSizeFinest = 0.02f;
-const float TrailCellSizeCoarsest = 0.08f;
+// The ground resolution itself is a runtime parameter reaching both languages
+// through the step block, so it is not declared here. Its bounds are expressed in
+// body diameters rather than metres and live with the body radius in
+// AgentTypes.hpp: what decides whether a resolution is useful is how many cells
+// wide a track comes out, and "a fifth of an agent" says that where "9 mm" does
+// not.
 
 VKEXP_TRAIL_FN uint trailValueIndex(uint world, uint cellsPerWorld, uint cell, uint channel) {
     return ((world * cellsPerWorld) + cell) * TrailChannels + channel;

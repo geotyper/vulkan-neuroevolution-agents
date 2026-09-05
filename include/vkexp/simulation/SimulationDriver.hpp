@@ -74,6 +74,7 @@ private:
     void updateGridDescriptors();
     [[nodiscard]] float gridCellSize() const;
     void updateGridDimensions();
+    [[nodiscard]] std::uint64_t trailFieldBytes(float cellSize) const;
     void updateTrailDimensions();
     void ensureTrailCapacity();
     void updateTrailDescriptors();
@@ -115,6 +116,7 @@ private:
     std::uint32_t gridCellsPerWorld_{};
     std::uint32_t trailWidth_{};
     std::uint32_t trailCellsPerWorld_{};
+    VkDeviceSize trailActiveBytes_{};
     bool hostUploadPending_{};
     bool trailClearPending_{true};
 };

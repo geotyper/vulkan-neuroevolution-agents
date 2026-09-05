@@ -280,8 +280,9 @@ int run(const Options& options) {
     }
     if (options.trailCellSize) {
         state.physics.trailCellSize =
-            std::clamp(*options.trailCellSize, vkexp::trail::kernel::TrailCellSizeFinest,
-                       vkexp::trail::kernel::TrailCellSizeCoarsest);
+            std::clamp(*options.trailCellSize,
+                       vkexp::trailCellSizeForBodyFraction(vkexp::trailCellFractionFinest),
+                       vkexp::trailCellSizeForBodyFraction(vkexp::trailCellFractionCoarsest));
     }
 
     vkexp::EvolutionSettings evolution;

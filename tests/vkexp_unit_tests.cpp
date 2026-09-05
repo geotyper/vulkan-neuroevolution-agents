@@ -250,7 +250,7 @@ void testNeuralNetworkContract() {
     // Strictly more than one cell apart is the guarantee that matters: two points
     // further apart than a cell is wide cannot share a cell, whatever the phase.
     // At the coarsest 8 cm setting the 15.5 cm spread leaves 1.9 cells.
-    check(antennaSpread > vkexp::trail::kernel::TrailCellSizeCoarsest,
+    check(antennaSpread > vkexp::trailCellSizeForBodyFraction(vkexp::trailCellFractionCoarsest),
           "Outer antenna tips cannot share a cell at the coarsest trail resolution");
     check(kernel::BrainSelfOffset + kernel::BrainSelfInputCount == kernel::BrainTaskOffset,
           "Task block follows the self block");

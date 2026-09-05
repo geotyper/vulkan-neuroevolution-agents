@@ -247,8 +247,7 @@ public:
         // The trail field is GPU-only state, so the parity cases run with it off
         // and this buffer stays zero; the harness still has to bind it, and
         // runTrailFieldProbe drives it for real.
-        trailWidth_ =
-            vkexp::trailWidthForWorld(worldRadius, vkexp::trail::kernel::TrailCellSizeDefault);
+        trailWidth_ = vkexp::trailWidthForWorld(worldRadius, vkexp::SimulationStep{}.trailCellSize);
         trailCellsPerWorld_ = trailWidth_ * trailWidth_;
         trail.create(context.physicalDevice(), context.device(),
                      {sizeof(std::uint32_t) * trailCellsPerWorld_ * worldCount *

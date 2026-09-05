@@ -39,6 +39,26 @@ inline constexpr std::size_t beaconScenarioCount = 5;
 // value and the scale every other length is chosen against.
 inline constexpr float agentBodyRadius = 0.022F;
 
+inline constexpr float agentBodyDiameter = agentBodyRadius * 2.0F;
+
+// Trail resolution is chosen in units of the body that leaves the trail. One
+// body diameter per cell is the coarsest useful setting -- a track cannot then
+// be drawn narrower than the thing that made it -- and a fifth of a body is a
+// thin line. Both ends are far inside the correctness bound: the outer antenna
+// tips are 15.5 cm apart, three and a half cells even at the coarsest.
+//
+// What actually limits the fine end is bandwidth, not capacity: the decay pass
+// touches every value of every world on every step, so halving the cell size
+// quadruples that traffic. The UI prints both numbers, and the driver refuses to
+// allocate past a budget rather than asking for gigabytes.
+inline constexpr float trailCellFractionFinest = 0.2F;
+inline constexpr float trailCellFractionCoarsest = 1.0F;
+inline constexpr std::uint64_t trailFieldByteBudget = 1024ULL * 1024ULL * 1024ULL;
+
+[[nodiscard]] constexpr float trailCellSizeForBodyFraction(const float fraction) {
+    return agentBodyDiameter * fraction;
+}
+
 // Arena radius in metres: the small world is 3.7 m across, which puts a 4.4 cm
 // body roughly 84 body-lengths from the far wall.
 inline constexpr float smallWorldRadius = 1.84F;
@@ -198,8 +218,10 @@ struct SimulationStep {
     // can be at one cell. The default is the body diameter over the cell size, so
     // a track is as wide as whatever left it; 1.0 fills the cell, which reads
     // better on a large arena where a cell is only a few pixels across.
-    float trailRenderWidth{agentBodyRadius * 2.0F / trail::kernel::TrailCellSizeDefault};
-    float trailCellSize{trail::kernel::TrailCellSizeDefault}; // m of ground per cell
+    // Filling the cell is now the right default: a cell is at most a body
+    // diameter, so a full cell is never wider than whatever left the mark.
+    float trailRenderWidth{1.0F};
+    float trailCellSize{trailCellSizeForBodyFraction(trailCellFractionCoarsest)};
     bool trailEnabled{true};
     FitnessWeights fitness{};
     std::uint32_t beaconMotionSeed{};
