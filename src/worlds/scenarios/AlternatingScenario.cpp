@@ -5,8 +5,18 @@
 namespace vkexp::worlds::alternating {
 namespace {
 
-float fitness(const AgentState& agent) {
-    return objectiveFitness(agent, completedBeaconPhases(agent));
+float fitness(const AgentState& agent, const FitnessWeights& weights) {
+    return objectiveFitness(agent, completedBeaconPhases(agent), weights);
+}
+
+std::uint32_t achievedObjectives(const AgentState& agent) { return completedBeaconPhases(agent); }
+
+// The diagonal swaps mid-generation, so progress toward the old pair has to be
+// banked before the new distance becomes the baseline.
+void beforeStep(AgentState& agent, const SimulationStep& settings) {
+    if (settings.beaconPhaseChanged) {
+        bankObjectiveProgress(agent, settings, false);
+    }
 }
 
 // Diagonal positions derive from the world radius and the shared beacon phase.
@@ -21,19 +31,34 @@ static_assert(brain.fitsCapacity());
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Alternating diagonals", brain, fitness,
-                                              gpuParameters};
+    static constexpr ScenarioDefinition value{
+        .name = "Alternating diagonals",
+        .key = "alternating",
+        .id = BeaconScenario::AlternatingDiagonals,
+        .brain = brain,
+        .tunables = {},
+        .beacons = beacons,
+        .beaconCount = 2,
+        .targetDistance = nullptr,
+        .phaseForStep = phaseForStep,
+        .fitness = fitness,
+        .achievedObjectives = achievedObjectives,
+        .objectivesPerAgent = 2,
+        .beforeStep = beforeStep,
+        .afterStep = recordPhaseArrival,
+        .gpuParameters = gpuParameters,
+    };
     return value;
 }
 
-ActiveBeacons beacons(const SimulationStep& settings) {
-    const float offset = settings.worldRadius * 0.62F;
-    const bool secondDiagonal = settings.beaconPhase != 0;
-    const float firstY = secondDiagonal ? offset : -offset;
-    const float secondY = -firstY;
-    const std::size_t colorOffset = secondDiagonal ? 2 : 0;
-    return {{{Beacon{{-offset, firstY, 0.0F, 0.0F}, trialColors[colorOffset]},
-              Beacon{{offset, secondY, 0.0F, 0.0F}, trialColors[colorOffset + 1]}}},
+ActiveBeacons beacons(const AgentState&, const SimulationStep& settings) {
+    const std::size_t colorOffset = settings.beaconPhase != 0 ? 2 : 0;
+    const auto position = [&](const std::uint32_t index) {
+        return scaledOffset(kernel::alternatingDiagonalOffset(index, settings.beaconPhase),
+                            settings.worldRadius);
+    };
+    return {{{Beacon{position(0), trialColors[colorOffset]},
+              Beacon{position(1), trialColors[colorOffset + 1]}}},
             2};
 }
 

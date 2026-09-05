@@ -103,8 +103,9 @@ vkneuro_headless             (batch composition root)
   +-- vkneuro_domain          no Vulkan dependency
   |     NeuralNetwork         flattened brain contract + CPU evaluator
   |     worlds/
-  |       WorldScenario       scenario definition + public dispatcher
-  |       scenarios/          world rules, brain shape, and fitness per scenario
+  |       ScenarioKernel.inl  scenario math compiled by C++ and GLSL alike
+  |       WorldScenario       scenario contract + validated registry
+  |       scenarios/          one file per experiment, whole contract each
   |     Sensors               CPU reference perception
   |     CpuSimulation         CPU reference physics/fitness
   |     GeneticAlgorithm      selection/crossover/mutation
@@ -112,7 +113,8 @@ vkneuro_headless             (batch composition root)
   +-- vkneuro_simulation
   |     SimulationDriver      population, GA, and per-step dispatch recording
   |     SimulationModule      frame-loop adapter over the driver
-  |     worlds/*.glsl         shared per-scenario shader implementations
+  |     worlds/*.glsl         per-scenario geometry, shared with the vertex shader
+  |     worlds/steps/*.glsl   per-scenario step hooks mirroring the C++ ones
   |     agent_grid_*.comp     per-logical-world spatial acceleration
   |     agent_step.comp       RGB sensors + brain + collisions + physics
   |
@@ -140,7 +142,14 @@ The shared contracts are small:
   `ScenarioParameterBlock` each scenario packs and unpacks itself. It travels in
   a storage buffer indexed by step rather than in push constants, so adding a
   scenario neither widens a shared struct nor approaches the 128-byte push
-  constant size Vulkan guarantees.
+  constant size Vulkan guarantees;
+- `ScenarioDefinition` is the whole contract of an experiment: brain shape,
+  beacons, fitness, objective counting, per-step hooks, GPU packing, and the
+  tunables the UI should offer. A validated registry replaces what used to be
+  scenario switches in the simulation, the scoring, the renderer, the batch
+  runner and the UI;
+- `FitnessWeights` carries the shaping coefficients to both the CPU reference
+  and the shader, so a fitness experiment is a slider or a CLI flag.
 
 This lets a new sensor model, brain evaluator, selection policy, renderer, or
 UI replace its counterpart without changing the application lifecycle.
@@ -148,6 +157,17 @@ UI replace its counterpart without changing the application lifecycle.
 `SimulationDriver` holds the experiment; `SimulationModule` only maps frame
 callbacks onto it. The batch runner drives the same driver from an
 `ImmediateContext`, so a sweep and the window run identical code.
+
+### Adding a scenario
+
+One source file fills in a `ScenarioDefinition`, one `worlds/<name>.glsl`
+unpacks the same parameter block for geometry, one `worlds/steps/<name>.glsl`
+mirrors the step hooks, and one line joins the registry. Shared formulas go in
+`include/vkexp/worlds/ScenarioKernel.inl`, which is compiled twice -- once as
+C++ through a small `vec2`/`uint` shim, once as GLSL where those names are built
+in -- so a hash constant or a beacon formula exists exactly once. The remaining
+scenario identity checks live in two GLSL dispatchers, which is as far as a
+language without function pointers allows.
 
 The four beacon-following scenarios currently use a reactive `48 -> 20 -> 6`
 brain. `Forage + home` declares `52 -> 20 -> 8`, adding task state and two
@@ -185,6 +205,11 @@ Pure CPU tests cover world scaling, beacon layouts, logical-world partition
 mapping, channel mapping, weight layout, neural evaluation, elite preservation,
 scenario parameter packing, resolved step settings, genome archive round-trips
 including corruption and truncation rejection, and reusable compute validation.
+Two of them guard the contracts this architecture rests on: every registered
+scenario is checked for registry order, a CLI key, a brain that fits the genome,
+a declared beacon count that matches what it reports, and a step that survives
+its own hooks; and the shared kernel is pinned on the C++ side so a change to
+`ScenarioKernel.inl` cannot slip through on a machine without a GPU.
 
 ## Build and run
 
@@ -223,7 +248,19 @@ parameter sweeps and ablation comparisons possible:
     --load-population runs/forage-population.vkng
 ```
 
-`--help` lists every option. Genome archives are versioned little-endian files
+Fitness shaping coefficients are flags too (`--objective-bonus`, `--motor-cost`,
+`--tracking-reward`, `--signal-cost`, `--energy-drain`), so sweeping them needs
+no rebuild:
+
+```bash
+for reward in 0.0 0.25 0.75; do
+    ./build/release/vkneuro_headless --scenario rotating --generations 50 --seed 5 \
+        --tracking-reward "$reward" --csv "runs/tracking-$reward.csv"
+done
+```
+
+`--help` lists every option, and its scenario list comes from the registry.
+Genome archives are versioned little-endian files
 that record the generation, scenario, seed, fitness and brain shape, and refuse
 to load into a build with a different weight count.
 
@@ -236,8 +273,8 @@ device exists.
 
 The next world feature should enter through a focused contract:
 
-- a new scenario adds one `.cpp`/`.glsl` pair plus its parameter block; it does
-  not touch the shared step parameters;
+- a new scenario adds one `.cpp`, two `.glsl` files and a registry line; it does
+  not touch the shared step parameters, the simulation, the scoring or the UI;
 - walls and occlusion extend sensor/world queries;
 - richer recurrent cells or gated memory can extend the two-value recurrent state;
 - internal walls and occlusion extend grid-backed world queries;

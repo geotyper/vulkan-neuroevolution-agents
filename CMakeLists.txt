@@ -45,9 +45,13 @@ set(SHADER_SOURCES
     agents.vert
     agents.frag
 )
+# Scenario math compiled into both the shaders and vkneuro_domain.
+set(SHADER_SHARED_KERNEL ${CMAKE_CURRENT_SOURCE_DIR}/include/vkexp/worlds/ScenarioKernel.inl)
 file(GLOB SHADER_INCLUDE_SOURCES CONFIGURE_DEPENDS
     ${SHADER_SOURCE_DIR}/worlds/*.glsl
+    ${SHADER_SOURCE_DIR}/worlds/steps/*.glsl
 )
+list(APPEND SHADER_INCLUDE_SOURCES ${SHADER_SHARED_KERNEL})
 
 set(SHADER_BINARIES)
 foreach(SHADER ${SHADER_SOURCES})
@@ -60,6 +64,7 @@ foreach(SHADER ${SHADER_SOURCES})
         OUTPUT ${SPIRV}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BINARY_DIR}
         COMMAND ${GLSLANG_VALIDATOR} -V -I${SHADER_SOURCE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}/include
                 ${SHADER_SOURCE_DIR}/${SHADER} -o ${SPIRV}
         DEPENDS ${SHADER_SOURCE_DIR}/${SHADER} ${SHADER_EXTRA_DEPENDENCIES}
         COMMENT "Compiling ${SHADER}"

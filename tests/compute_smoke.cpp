@@ -192,7 +192,8 @@ vkexp::GpuStepParameters makeStepParameters(const vkexp::SimulationStep& setting
             static_cast<std::uint32_t>(settings.beaconScenario),
             settings.beaconPhase,
             settings.beaconPhaseChanged ? 1U : 0U,
-            0U,
+            scenario.beaconCount,
+            vkexp::packFitnessWeights(settings.fitness),
             scenario.gpuParameters(settings)};
 }
 

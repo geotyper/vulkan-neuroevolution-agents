@@ -265,14 +265,12 @@ GenerationSummary SimulationDriver::finishGeneration() {
     agentBuffers_.read().read(agents_.data(), agents_.size() * sizeof(AgentState));
     const ScenarioDefinition& scenario = scenarioDefinition(state_.physics.beaconScenario);
     std::vector<float> fitness(evolution_.population().size());
-    std::size_t completedPhases = 0;
+    std::size_t achievedObjectives = 0;
     for (std::size_t genome = 0; genome < fitness.size(); ++genome) {
         for (std::size_t trial = 0; trial < config_.trialsPerGenome; ++trial) {
             const AgentState& agent = agents_[genome * config_.trialsPerGenome + trial];
-            fitness[genome] += scenario.fitness(agent);
-            completedPhases += state_.physics.beaconScenario == BeaconScenario::ForageHome
-                                   ? static_cast<std::size_t>(completedForageCycles(agent) > 0)
-                                   : completedBeaconPhases(agent);
+            fitness[genome] += scenario.fitness(agent, state_.physics.fitness);
+            achievedObjectives += scenario.achievedObjectives(agent);
         }
         fitness[genome] /= static_cast<float>(config_.trialsPerGenome);
     }
@@ -280,10 +278,9 @@ GenerationSummary SimulationDriver::finishGeneration() {
     state_.statistics.bestFitness = summary.bestFitness;
     state_.statistics.meanFitness = summary.meanFitness;
     state_.statistics.medianFitness = summary.medianFitness;
-    const std::size_t phasesPerAgent =
-        state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals ? 2U : 1U;
     state_.statistics.arrivalRatio =
-        static_cast<float>(completedPhases) / static_cast<float>(agents_.size() * phasesPerAgent);
+        static_cast<float>(achievedObjectives) /
+        static_cast<float>(agents_.size() * scenario.objectivesPerAgent);
     const auto appendHistory = [&](std::vector<float>& history, const float value) {
         history.push_back(value);
         if (history.size() > state_.history.maximumSamples) {
@@ -396,7 +393,8 @@ GpuStepParameters SimulationDriver::stepParameters(const std::uint32_t generatio
             static_cast<std::uint32_t>(settings.beaconScenario),
             settings.beaconPhase,
             settings.beaconPhaseChanged ? 1U : 0U,
-            0U,
+            scenario.beaconCount,
+            packFitnessWeights(settings.fitness),
             scenario.gpuParameters(settings)};
 }
 

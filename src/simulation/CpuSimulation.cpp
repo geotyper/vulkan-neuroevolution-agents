@@ -9,9 +9,6 @@
 namespace vkexp {
 namespace {
 
-constexpr float foragePickupReward = 0.25F;
-constexpr float forageDeliveryReward = 4.0F;
-
 void setComponent(Float4& value, const std::size_t index, const float contact) {
     float* components[] = {&value.x, &value.y, &value.z, &value.w};
     *components[index] = std::max(*components[index], contact);
@@ -35,19 +32,11 @@ void recordWallContact(AgentState& agent, const float directionX, const float di
 void stepAgentCpu(AgentState& agent,
                   const std::span<const float, neuro::Topology::weightCount> weights,
                   const SimulationStep& settings) {
-    if (settings.beaconScenario == BeaconScenario::AlternatingDiagonals &&
-        settings.beaconPhaseChanged) {
-        agent.metrics.w += agent.metrics.x - agent.metrics.y;
-        agent.metrics.x = nearestBeaconDistance(agent, settings);
-        agent.metrics.y = agent.metrics.x;
+    const ScenarioDefinition& scenario = scenarioDefinition(settings.beaconScenario);
+    if (scenario.beforeStep != nullptr) {
+        scenario.beforeStep(agent, settings);
     }
-    if (settings.beaconScenario == BeaconScenario::ForageHome && agent.internal.y >= 0.5F &&
-        homeBeaconRelocated(settings)) {
-        agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
-        agent.metrics.x = nearestBeaconDistance(agent, settings);
-        agent.metrics.y = agent.metrics.x;
-    }
-    const neuro::BrainShape brain = scenarioDefinition(settings.beaconScenario).brain;
+    const neuro::BrainShape brain = scenario.brain;
     const neuro::Outputs output =
         neuro::evaluate(weights, sampleAgentInputs(agent, settings), brain);
     const float left = output[0];
@@ -128,8 +117,10 @@ void stepAgentCpu(AgentState& agent,
 
     const float motorCost = (std::abs(left) + std::abs(right)) * settings.deltaTime;
     const float signalIntensity = std::max(output[5], 0.0F);
-    const float signalCost = signalIntensity * settings.deltaTime * 0.25F;
-    agent.motion.w = std::max(0.0F, agent.motion.w - motorCost * 0.0008F - signalCost * 0.0008F);
+    const float signalCost =
+        signalIntensity * settings.deltaTime * settings.fitness.signalCostFactor;
+    agent.motion.w =
+        std::max(0.0F, agent.motion.w - (motorCost + signalCost) * settings.fitness.energyDrain);
     agent.signal = {output[2] * 0.5F + 0.5F, output[3] * 0.5F + 0.5F, output[4] * 0.5F + 0.5F,
                     signalIntensity};
     if (brain.outputCount >=
@@ -144,44 +135,12 @@ void stepAgentCpu(AgentState& agent,
     const float distance = nearestBeaconDistance(agent, settings);
     agent.metrics.y = std::min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;
-    if (settings.beaconScenario == BeaconScenario::ForageHome) {
-        if (agent.internal.y >= 0.5F) {
-            agent.internal.x = std::max(0.0F, agent.internal.x - settings.forageCargoDecayRate *
-                                                                     settings.deltaTime);
-        }
-        if (distance < beaconArrivalRadius(settings)) {
-            agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
-            if (agent.internal.y >= 0.5F) {
-                agent.metrics.w += agent.internal.x * forageDeliveryReward;
-                agent.target.w = static_cast<float>(completedForageCycles(agent) + 1);
-                agent.internal.x = 0.0F;
-                agent.internal.y = 0.0F;
-            } else {
-                agent.metrics.w += foragePickupReward;
-                agent.internal.x = 1.0F;
-                agent.internal.y = 1.0F;
-            }
-            agent.metrics.x = nearestBeaconDistance(agent, settings);
-            agent.metrics.y = agent.metrics.x;
-        }
-        return;
-    }
-    if (settings.beaconScenario == BeaconScenario::Rotating ||
-        settings.beaconScenario == BeaconScenario::RandomMovement) {
-        const float visibleCloseness =
-            std::clamp(1.0F - distance / settings.lightSensorRange, 0.0F, 1.0F);
-        agent.metrics.w += visibleCloseness * settings.deltaTime * 0.25F;
-    }
-    if (distance < beaconArrivalRadius(settings)) {
-        const std::uint32_t phaseBit = 1U << settings.beaconPhase;
-        const auto completedMask =
-            static_cast<std::uint32_t>(std::max(agent.target.w, 0.0F) + 0.5F) | phaseBit;
-        agent.target.w = static_cast<float>(completedMask);
-    }
+    scenario.afterStep(agent, settings, distance);
 }
 
-float agentFitness(const AgentState& agent, const BeaconScenario scenario) {
-    return scenarioDefinition(scenario).fitness(agent);
+float agentFitness(const AgentState& agent, const BeaconScenario scenario,
+                   const FitnessWeights& weights) {
+    return scenarioDefinition(scenario).fitness(agent, weights);
 }
 
 } // namespace vkexp

@@ -11,19 +11,56 @@ namespace {
 
 constexpr Float4 resourceColor{1.00F, 0.55F, 0.08F, 0.0F};
 constexpr Float4 homeColor{0.12F, 0.72F, 1.00F, 0.0F};
-constexpr float minimumHomeRadiusRatio = 0.38F;
-constexpr float homeRadiusRange = 0.32F;
 
-float fitness(const AgentState& agent) {
-    return objectiveFitness(agent, completedForageCycles(agent));
+float fitness(const AgentState& agent, const FitnessWeights& weights) {
+    return objectiveFitness(agent, completedForageCycles(agent), weights);
+}
+
+// One completed round trip is enough to count as a solved task; the fitness
+// function still rewards every further cycle.
+std::uint32_t achievedObjectives(const AgentState& agent) {
+    return completedForageCycles(agent) > 0 ? 1U : 0U;
+}
+
+// Home jumps on an epoch boundary. A carrying agent must not lose the progress
+// it already made toward the old home.
+void beforeStep(AgentState& agent, const SimulationStep& settings) {
+    if (agent.internal.y >= 0.5F && homeRelocated(settings)) {
+        bankObjectiveProgress(agent, settings, true);
+    }
+}
+
+void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
+    if (agent.internal.y >= 0.5F) {
+        agent.internal.x =
+            std::max(0.0F, agent.internal.x - settings.forageCargoDecayRate * settings.deltaTime);
+    }
+    if (distance >= beaconArrivalRadius(settings)) {
+        return;
+    }
+    agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
+    if (agent.internal.y >= 0.5F) {
+        agent.metrics.w += agent.internal.x * settings.forageDeliveryReward;
+        agent.target.w = static_cast<float>(completedForageCycles(agent) + 1);
+        agent.internal.x = 0.0F;
+        agent.internal.y = 0.0F;
+    } else {
+        agent.metrics.w += settings.foragePickupReward;
+        agent.internal.x = 1.0F;
+        agent.internal.y = 1.0F;
+    }
+    agent.metrics.x = nearestBeaconDistance(agent, settings);
+    agent.metrics.y = agent.metrics.x;
 }
 
 // floats0 = {resource rotation angle, orbit radius ratio, motion time, cargo decay rate},
-// integers[0] = motion seed. Unpacked by shaders/worlds/forage_home.glsl.
+// floats1 = {pickup reward, delivery reward, unused, unused},
+// integers[0] = motion seed. Unpacked by shaders/worlds/forage_home.glsl and
+// shaders/worlds/steps/forage_home.glsl.
 ScenarioParameterBlock gpuParameters(const SimulationStep& settings) {
     return {{settings.beaconRotationAngle, settings.beaconRadiusRatio, settings.beaconMotionTime,
              settings.forageCargoDecayRate},
-            {},
+            {settings.foragePickupReward, settings.forageDeliveryReward, 0.0F, 0.0F},
             {settings.beaconMotionSeed, 0U, 0U, 0U}};
 }
 
@@ -33,31 +70,41 @@ static_assert(brain.fitsCapacity());
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Forage + home", brain, fitness, gpuParameters};
+    static constexpr ScenarioDefinition value{
+        .name = "Forage + home",
+        .key = "forage",
+        .id = BeaconScenario::ForageHome,
+        .brain = brain,
+        .tunables = {.beaconRadiusRatio = true,
+                     .beaconAngularSpeed = true,
+                     .beaconRandomMotion = false,
+                     .forageCargoDecay = true},
+        .objectiveLabel = "Completed a forage cycle",
+        .radiusLabel = "Orbit radius",
+        .description = "Orange resource -> blue home -> repeat",
+        .beacons = beacons,
+        .beaconCount = 2,
+        .targetDistance = targetDistance,
+        .phaseForStep = nullptr,
+        .fitness = fitness,
+        .achievedObjectives = achievedObjectives,
+        .objectivesPerAgent = 1,
+        .beforeStep = beforeStep,
+        .afterStep = afterStep,
+        .gpuParameters = gpuParameters,
+    };
     return value;
 }
 
 Float4 homePosition(const AgentState& agent, const SimulationStep& settings) {
     const auto trial = static_cast<std::uint32_t>(std::max(agent.target.z, 0.0F));
-    const auto epoch = static_cast<std::uint32_t>(
-        std::floor(std::max(settings.beaconMotionTime, 0.0F) / forageHomeRelocationSeconds));
-    const std::uint32_t key =
-        settings.beaconMotionSeed ^ (trial * 0x51ed270bU) ^ (epoch * 0x85ebca6bU) ^ 0xc2b2ae35U;
-    const float angle = random01(key) * tau;
-    const float radiusRatio =
-        minimumHomeRadiusRatio + random01(key ^ 0x27d4eb2dU) * homeRadiusRange;
-    const float radius = settings.worldRadius * radiusRatio;
-    return {std::cos(angle) * radius, std::sin(angle) * radius, 0.0F, 0.0F};
+    const std::uint32_t key = kernel::forageHomeKey(
+        settings.beaconMotionSeed, trial, kernel::forageHomeEpoch(settings.beaconMotionTime));
+    return scaledOffset(kernel::forageHomeOffset(key), settings.worldRadius);
 }
 
 bool homeRelocated(const SimulationStep& settings) {
-    const float currentTime = std::max(settings.beaconMotionTime, 0.0F);
-    const float previousTime = std::max(currentTime - settings.deltaTime, 0.0F);
-    const float epsilon = std::max(settings.deltaTime * 0.01F, 0.000001F);
-    return static_cast<std::uint32_t>(
-               std::floor((currentTime + epsilon) / forageHomeRelocationSeconds)) !=
-           static_cast<std::uint32_t>(
-               std::floor((previousTime + epsilon) / forageHomeRelocationSeconds));
+    return kernel::forageHomeRelocated(settings.beaconMotionTime, settings.deltaTime);
 }
 
 ActiveBeacons beacons(const AgentState& agent, const SimulationStep& settings) {

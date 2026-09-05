@@ -10,7 +10,8 @@ namespace vkexp {
 void stepAgentCpu(AgentState& agent, std::span<const float, neuro::Topology::weightCount> weights,
                   const SimulationStep& settings);
 
-[[nodiscard]] float agentFitness(const AgentState& agent,
-                                 BeaconScenario scenario = BeaconScenario::Stationary);
+// Scores a finished trial with the scenario's own fitness function.
+[[nodiscard]] float agentFitness(const AgentState& agent, BeaconScenario scenario,
+                                 const FitnessWeights& weights = {});
 
 } // namespace vkexp

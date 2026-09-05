@@ -12,6 +12,8 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <span>
+#include <vector>
 
 namespace vkexp {
 namespace {
@@ -108,41 +110,42 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         state_.controls.resetRequested = true;
     }
     ImGui::Text("World span: %.2f", state_.physics.worldRadius * 2.0F);
+    // Every scenario control below is driven by the scenario definition, so a new
+    // scenario appears here without editing this file.
+    const std::span<const ScenarioDefinition* const> registry = scenarioRegistry();
     int beaconScenario = static_cast<int>(state_.physics.beaconScenario);
-    std::array<const char*, beaconScenarioCount> beaconScenarios{};
-    for (std::size_t index = 0; index < beaconScenarios.size(); ++index) {
-        beaconScenarios[index] = scenarioDefinition(static_cast<BeaconScenario>(index)).name;
+    std::vector<const char*> beaconScenarios(registry.size());
+    for (std::size_t index = 0; index < registry.size(); ++index) {
+        beaconScenarios[index] = registry[index]->name;
     }
     if (ImGui::Combo("Beacon scenario", &beaconScenario, beaconScenarios.data(),
                      static_cast<int>(beaconScenarios.size()))) {
         state_.physics.beaconScenario = static_cast<BeaconScenario>(beaconScenario);
         state_.controls.resetRequested = true;
     }
+    const ScenarioDefinition& scenario = scenarioDefinition(state_.physics.beaconScenario);
     if (ImGui::SliderFloat("Arrival radius multiplier", &state_.physics.arrivalRadiusMultiplier,
                            0.1F, 5.0F, "x%.2f")) {
         state_.controls.resetRequested = true;
     }
     ImGui::TextDisabled("Arrival distance %.3f (x1 = beacon circle)",
                         beaconArrivalRadius(state_.physics));
-    if (state_.physics.beaconScenario == BeaconScenario::Rotating ||
-        state_.physics.beaconScenario == BeaconScenario::RandomMovement ||
-        state_.physics.beaconScenario == BeaconScenario::ForageHome) {
+    if (scenario.tunables.beaconRadiusRatio) {
         float beaconRadius = state_.physics.beaconRadiusRatio * state_.physics.worldRadius;
-        const char* radiusLabel = state_.physics.beaconScenario == BeaconScenario::RandomMovement
-                                      ? "Roam radius"
-                                      : "Orbit radius";
-        if (ImGui::SliderFloat(radiusLabel, &beaconRadius, state_.physics.worldRadius * 0.10F,
+        if (ImGui::SliderFloat(scenario.radiusLabel, &beaconRadius,
+                               state_.physics.worldRadius * 0.10F,
                                state_.physics.worldRadius * 0.90F, "%.2f")) {
             state_.physics.beaconRadiusRatio = beaconRadius / state_.physics.worldRadius;
             state_.controls.resetRequested = true;
         }
     }
-    if (state_.physics.beaconScenario == BeaconScenario::AlternatingDiagonals) {
-        const std::uint32_t phase =
-            state_.statistics.step >= state_.controls.stepsPerGeneration / 2 ? 2U : 1U;
-        ImGui::TextDisabled("Active diagonal: %u / 2", phase);
-    } else if (state_.physics.beaconScenario == BeaconScenario::Rotating ||
-               state_.physics.beaconScenario == BeaconScenario::ForageHome) {
+    if (scenario.phaseForStep != nullptr) {
+        const std::uint32_t phase = beaconPhaseForStep(scenario.id, state_.statistics.step,
+                                                       state_.controls.stepsPerGeneration) +
+                                    1U;
+        ImGui::TextDisabled("Active phase: %u / %u", phase, scenario.objectivesPerAgent);
+    }
+    if (scenario.tunables.beaconAngularSpeed) {
         if (ImGui::SliderAngle("Rotation speed", &state_.physics.beaconAngularSpeed, -90.0F, 90.0F,
                                "%.1f deg/s")) {
             state_.controls.resetRequested = true;
@@ -152,15 +155,8 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
             ImGui::TextDisabled("Orbit period: %.1f s",
                                 tau / std::abs(state_.physics.beaconAngularSpeed));
         }
-        if (state_.physics.beaconScenario == BeaconScenario::ForageHome) {
-            if (ImGui::SliderFloat("Cargo decay / second", &state_.physics.forageCargoDecayRate,
-                                   0.0F, 0.25F, "%.3f")) {
-                state_.controls.resetRequested = true;
-            }
-            ImGui::TextDisabled("Orange resource -> blue home -> repeat");
-            ImGui::TextDisabled("Home relocates every %.0f seconds", forageHomeRelocationSeconds);
-        }
-    } else if (state_.physics.beaconScenario == BeaconScenario::RandomMovement) {
+    }
+    if (scenario.tunables.beaconRandomMotion) {
         if (ImGui::SliderFloat("Wander speed", &state_.physics.beaconRandomSpeed, 0.0F, 0.75F,
                                "%.2f")) {
             state_.controls.resetRequested = true;
@@ -170,8 +166,51 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
             state_.physics.beaconTeleportProbability = teleportPercent * 0.01F;
             state_.controls.resetRequested = true;
         }
-        ImGui::TextDisabled("Teleport check every 3.0 s");
     }
+    if (scenario.tunables.forageCargoDecay) {
+        if (ImGui::SliderFloat("Cargo decay / second", &state_.physics.forageCargoDecayRate, 0.0F,
+                               0.25F, "%.3f")) {
+            state_.controls.resetRequested = true;
+        }
+        if (ImGui::SliderFloat("Pickup reward", &state_.physics.foragePickupReward, 0.0F, 2.0F,
+                               "%.2f")) {
+            state_.controls.resetRequested = true;
+        }
+        if (ImGui::SliderFloat("Delivery reward", &state_.physics.forageDeliveryReward, 0.0F, 12.0F,
+                               "%.2f")) {
+            state_.controls.resetRequested = true;
+        }
+        ImGui::TextDisabled("Home relocates every %.0f seconds", forageHomeRelocationSeconds);
+    }
+    if (scenario.description != nullptr) {
+        ImGui::TextDisabled("%s", scenario.description);
+    }
+    // Shaping weights reach both the CPU reference and the shader as parameters,
+    // so a fitness experiment is a slider rather than a rebuild.
+    ImGui::SeparatorText("Fitness shaping");
+    if (ImGui::SliderFloat("Objective bonus", &state_.physics.fitness.objectiveBonus, 0.0F, 10.0F,
+                           "%.2f")) {
+        state_.controls.resetRequested = true;
+    }
+    if (ImGui::SliderFloat("Motor cost weight", &state_.physics.fitness.motorCostWeight, 0.0F,
+                           0.02F, "%.4f")) {
+        state_.controls.resetRequested = true;
+    }
+    if (scenario.tunables.beaconAngularSpeed || scenario.tunables.beaconRandomMotion) {
+        if (ImGui::SliderFloat("Tracking reward", &state_.physics.fitness.trackingReward, 0.0F,
+                               1.0F, "%.3f")) {
+            state_.controls.resetRequested = true;
+        }
+    }
+    if (ImGui::SliderFloat("Signal cost factor", &state_.physics.fitness.signalCostFactor, 0.0F,
+                           2.0F, "%.2f")) {
+        state_.controls.resetRequested = true;
+    }
+    if (ImGui::SliderFloat("Energy drain", &state_.physics.fitness.energyDrain, 0.0F, 0.005F,
+                           "%.4f")) {
+        state_.controls.resetRequested = true;
+    }
+
     ImGui::SeparatorText("Physics");
     ImGui::SliderFloat("Thrust", &state_.physics.thrust, 0.2F, 4.0F);
     ImGui::SliderFloat("Turn", &state_.physics.turnAcceleration, 0.5F, 10.0F);
@@ -217,11 +256,8 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Text("Best fitness:   %.4f", state_.statistics.bestFitness);
     ImGui::Text("Median fitness: %.4f", state_.statistics.medianFitness);
     ImGui::Text("Mean fitness:   %.4f", state_.statistics.meanFitness);
-    if (state_.physics.beaconScenario == BeaconScenario::ForageHome) {
-        ImGui::Text("Completed a forage cycle: %.1f%%", state_.statistics.arrivalRatio * 100.0F);
-    } else {
-        ImGui::Text("Beacon objectives: %.1f%%", state_.statistics.arrivalRatio * 100.0F);
-    }
+    ImGui::Text("%s: %.1f%%", scenarioDefinition(state_.physics.beaconScenario).objectiveLabel,
+                state_.statistics.arrivalRatio * 100.0F);
     ImGui::SeparatorText("Fitness history");
     plotHistory("Best", state_.history.bestFitness);
     plotHistory("Median", state_.history.medianFitness);

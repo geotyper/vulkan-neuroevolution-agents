@@ -120,6 +120,17 @@ static_assert(offsetof(AgentState, penalties) == 80);
 static_assert(offsetof(AgentState, internal) == 96);
 static_assert(offsetof(AgentState, wallTouch0) == 112);
 
+// Shaping and energy coefficients. They used to be literals split between
+// CpuSimulation.cpp and agent_step.comp, which made every fitness experiment a
+// two-language edit plus a parity re-check; as parameters they are sliders.
+struct FitnessWeights {
+    float objectiveBonus{2.0F};    // score per completed objective
+    float motorCostWeight{0.002F}; // fitness charged per unit of motor and signal effort
+    float signalCostFactor{0.25F}; // cost of emitting, relative to moving
+    float energyDrain{0.0008F};    // battery drained per unit of effort
+    float trackingReward{0.25F};   // shaping for scenarios whose beacon keeps moving
+};
+
 struct SimulationStep {
     float deltaTime{1.0F / 60.0F};
     float worldRadius{smallWorldRadius};
@@ -143,6 +154,9 @@ struct SimulationStep {
     float beaconTeleportProbability{0.25F};
     float beaconRandomSpeed{0.18F};
     float forageCargoDecayRate{0.08F};
+    float foragePickupReward{0.25F};
+    float forageDeliveryReward{4.0F};
+    FitnessWeights fitness{};
     std::uint32_t beaconMotionSeed{};
     WorldShape worldShape{WorldShape::Circle};
     WorldSize worldSize{WorldSize::Small};
@@ -168,6 +182,20 @@ struct alignas(16) ScenarioParameterBlock {
 
 static_assert(sizeof(ScenarioParameterBlock) == 48);
 static_assert(offsetof(ScenarioParameterBlock, integers) == 32);
+
+// std430 mirror of FitnessWeights; padded so the scenario block stays aligned.
+struct alignas(16) GpuFitnessWeights {
+    float objectiveBonus{};
+    float motorCostWeight{};
+    float signalCostFactor{};
+    float energyDrain{};
+    float trackingReward{};
+    float reserved0{};
+    float reserved1{};
+    float reserved2{};
+};
+
+static_assert(sizeof(GpuFitnessWeights) == 32);
 
 // std430-compatible per-step parameters. This lives in a storage buffer rather
 // than push constants: the scenario block already pushes the structure past the
@@ -201,13 +229,26 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t beaconScenario{};
     std::uint32_t beaconPhase{};
     std::uint32_t beaconPhaseChanged{};
-    std::uint32_t reserved{};
+    std::uint32_t beaconCount{};
+    GpuFitnessWeights fitness;
     ScenarioParameterBlock scenario;
 };
 
-static_assert(sizeof(GpuStepParameters) == 160);
+static_assert(sizeof(GpuStepParameters) == 192);
 static_assert(offsetof(GpuStepParameters, agentCount) == 64);
 static_assert(offsetof(GpuStepParameters, beaconScenario) == 96);
-static_assert(offsetof(GpuStepParameters, scenario) == 112);
+static_assert(offsetof(GpuStepParameters, fitness) == 112);
+static_assert(offsetof(GpuStepParameters, scenario) == 144);
+
+[[nodiscard]] constexpr GpuFitnessWeights packFitnessWeights(const FitnessWeights& weights) {
+    return {weights.objectiveBonus,
+            weights.motorCostWeight,
+            weights.signalCostFactor,
+            weights.energyDrain,
+            weights.trackingReward,
+            0.0F,
+            0.0F,
+            0.0F};
+}
 
 } // namespace vkexp

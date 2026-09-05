@@ -7,25 +7,54 @@
 #include "vkexp/worlds/scenarios/StationaryScenario.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
+#include <stdexcept>
+#include <string>
+#include <tuple>
 
 namespace vkexp {
+namespace {
+
+// The one place that knows the full set of scenarios. Adding one means adding a
+// source file, its shader pair and a line here.
+const std::array<const ScenarioDefinition*, beaconScenarioCount>& registry() {
+    static const std::array<const ScenarioDefinition*, beaconScenarioCount> definitions = [] {
+        const std::array<const ScenarioDefinition*, beaconScenarioCount> entries{
+            &worlds::stationary::definition(), &worlds::alternating::definition(),
+            &worlds::rotating::definition(), &worlds::random_movement::definition(),
+            &worlds::forage_home::definition()};
+        // A registry out of order would silently run the wrong world rules, so
+        // the mismatch has to be fatal rather than merely wrong.
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            if (entries[index] == nullptr ||
+                entries[index]->id != static_cast<BeaconScenario>(index)) {
+                throw std::logic_error("Scenario registry is not in BeaconScenario order");
+            }
+            if (entries[index]->key == nullptr || entries[index]->beacons == nullptr ||
+                entries[index]->fitness == nullptr ||
+                entries[index]->achievedObjectives == nullptr ||
+                entries[index]->afterStep == nullptr || entries[index]->gpuParameters == nullptr ||
+                entries[index]->objectivesPerAgent == 0 || entries[index]->beaconCount == 0 ||
+                entries[index]->beaconCount > std::tuple_size_v<decltype(ActiveBeacons::values)>) {
+                throw std::logic_error(std::string{"Scenario '"} + entries[index]->name +
+                                       "' does not implement the full scenario contract");
+            }
+        }
+        return entries;
+    }();
+    return definitions;
+}
+
+} // namespace
+
+std::span<const ScenarioDefinition* const> scenarioRegistry() { return registry(); }
 
 const ScenarioDefinition& scenarioDefinition(const BeaconScenario scenario) {
-    switch (scenario) {
-    case BeaconScenario::Stationary:
-        return worlds::stationary::definition();
-    case BeaconScenario::AlternatingDiagonals:
-        return worlds::alternating::definition();
-    case BeaconScenario::Rotating:
-        return worlds::rotating::definition();
-    case BeaconScenario::RandomMovement:
-        return worlds::random_movement::definition();
-    case BeaconScenario::ForageHome:
-        return worlds::forage_home::definition();
-    }
-    return worlds::stationary::definition();
+    const auto index = static_cast<std::size_t>(scenario);
+    const auto& definitions = registry();
+    return *definitions[index < definitions.size() ? index : 0];
 }
 
 Float4 stationaryBeaconPosition(const std::uint32_t trial, const float worldRadius) {
@@ -41,26 +70,15 @@ bool homeBeaconRelocated(const SimulationStep& settings) {
 }
 
 ActiveBeacons activeBeacons(const AgentState& agent, const SimulationStep& settings) {
-    switch (settings.beaconScenario) {
-    case BeaconScenario::Stationary:
-        return worlds::stationary::beacons(agent, settings);
-    case BeaconScenario::AlternatingDiagonals:
-        return worlds::alternating::beacons(settings);
-    case BeaconScenario::Rotating:
-        return worlds::rotating::beacons(agent, settings);
-    case BeaconScenario::RandomMovement:
-        return worlds::random_movement::beacons(agent, settings);
-    case BeaconScenario::ForageHome:
-        return worlds::forage_home::beacons(agent, settings);
-    }
-    return worlds::stationary::beacons(agent, settings);
+    return scenarioDefinition(settings.beaconScenario).beacons(agent, settings);
 }
 
 float nearestBeaconDistance(const AgentState& agent, const SimulationStep& settings) {
-    if (settings.beaconScenario == BeaconScenario::ForageHome) {
-        return worlds::forage_home::targetDistance(agent, settings);
+    const ScenarioDefinition& scenario = scenarioDefinition(settings.beaconScenario);
+    if (scenario.targetDistance != nullptr) {
+        return scenario.targetDistance(agent, settings);
     }
-    const ActiveBeacons beacons = activeBeacons(agent, settings);
+    const ActiveBeacons beacons = scenario.beacons(agent, settings);
     float nearest = settings.worldRadius * 4.0F;
     for (std::size_t index = 0; index < beacons.count; ++index) {
         const float dx = beacons.values[index].position.x - agent.pose.x;
@@ -81,9 +99,8 @@ std::uint32_t completedForageCycles(const AgentState& agent) {
 
 std::uint32_t beaconPhaseForStep(const BeaconScenario scenario, const std::uint32_t step,
                                  const std::uint32_t stepsPerGeneration) {
-    return scenario == BeaconScenario::AlternatingDiagonals
-               ? worlds::alternating::phaseForStep(step, stepsPerGeneration)
-               : 0;
+    const ScenarioPhaseForStep phaseForStep = scenarioDefinition(scenario).phaseForStep;
+    return phaseForStep != nullptr ? phaseForStep(step, stepsPerGeneration) : 0U;
 }
 
 float beaconRotationAngleForStep(const float angularSpeed, const float deltaTime,
@@ -95,8 +112,11 @@ SimulationStep resolveStepSettings(const SimulationStep& base, const std::uint32
                                    const std::uint32_t stepsPerGeneration) {
     SimulationStep resolved = base;
     resolved.beaconPhase = beaconPhaseForStep(base.beaconScenario, step, stepsPerGeneration);
-    resolved.beaconPhaseChanged = base.beaconScenario == BeaconScenario::AlternatingDiagonals &&
-                                  stepsPerGeneration != 0 && step == stepsPerGeneration / 2;
+    // Derived rather than special-cased, so a future multi-phase scenario gets
+    // its transitions reported without touching this function.
+    resolved.beaconPhaseChanged =
+        step > 0 && beaconPhaseForStep(base.beaconScenario, step - 1, stepsPerGeneration) !=
+                        resolved.beaconPhase;
     resolved.beaconRotationAngle =
         beaconRotationAngleForStep(base.beaconAngularSpeed, base.deltaTime, step);
     resolved.beaconMotionTime = base.deltaTime * static_cast<float>(step);

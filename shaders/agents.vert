@@ -49,7 +49,7 @@ vec2 circleVertex(uint vertex, float radius, uint segmentCount) {
     if (corner == 0) {
         return vec2(0.0);
     }
-    const float angle = Tau * float(segment + corner - 1) / float(segmentCount);
+    const float angle = ScenarioTau * float(segment + corner - 1) / float(segmentCount);
     return vec2(cos(angle), sin(angle)) * radius;
 }
 
@@ -75,10 +75,7 @@ void main() {
                                        max(max(agent.agentTouch1.x, agent.agentTouch1.y),
                                            max(agent.agentTouch1.z, agent.agentTouch1.w)));
         vec3 bodyColor = mix(vec3(0.72, 0.82, 0.92), agent.signal.rgb, 0.42);
-        if (params.beaconScenario == 4 && agent.internal.y >= 0.5) {
-            bodyColor = mix(bodyColor, vec3(1.00, 0.55, 0.08),
-                            0.35 + 0.45 * clamp(agent.internal.x, 0.0, 1.0));
-        }
+        bodyColor = scenarioBodyTint(params.beaconScenario, agent, bodyColor);
         bodyColor = mix(bodyColor, vec3(1.0, 0.35, 0.12), wallContact * 0.75);
         bodyColor = mix(bodyColor, vec3(1.0, 0.95, 0.35), agentContact * 0.85);
         color = vec4(bodyColor, params.opacity);

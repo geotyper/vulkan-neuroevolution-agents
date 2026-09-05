@@ -8,9 +8,11 @@
 namespace vkexp::worlds::stationary {
 namespace {
 
-float fitness(const AgentState& agent) {
-    return objectiveFitness(agent, completedBeaconPhases(agent));
+float fitness(const AgentState& agent, const FitnessWeights& weights) {
+    return objectiveFitness(agent, completedBeaconPhases(agent), weights);
 }
+
+std::uint32_t achievedObjectives(const AgentState& agent) { return completedBeaconPhases(agent); }
 
 // Per-trial beacons live in agent.target, so nothing has to reach the GPU.
 ScenarioParameterBlock gpuParameters(const SimulationStep&) { return {}; }
@@ -24,7 +26,23 @@ static_assert(brain.fitsCapacity());
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Stationary", brain, fitness, gpuParameters};
+    static constexpr ScenarioDefinition value{
+        .name = "Stationary",
+        .key = "stationary",
+        .id = BeaconScenario::Stationary,
+        .brain = brain,
+        .tunables = {},
+        .beacons = beacons,
+        .beaconCount = 1,
+        .targetDistance = nullptr,
+        .phaseForStep = nullptr,
+        .fitness = fitness,
+        .achievedObjectives = achievedObjectives,
+        .objectivesPerAgent = 1,
+        .beforeStep = nullptr,
+        .afterStep = recordPhaseArrival,
+        .gpuParameters = gpuParameters,
+    };
     return value;
 }
 

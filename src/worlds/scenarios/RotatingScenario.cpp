@@ -8,8 +8,16 @@
 namespace vkexp::worlds::rotating {
 namespace {
 
-float fitness(const AgentState& agent) {
-    return objectiveFitness(agent, completedBeaconPhases(agent));
+float fitness(const AgentState& agent, const FitnessWeights& weights) {
+    return objectiveFitness(agent, completedBeaconPhases(agent), weights);
+}
+
+std::uint32_t achievedObjectives(const AgentState& agent) { return completedBeaconPhases(agent); }
+
+// The beacon never stops, so arrivals alone would leave the gradient flat.
+void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
+    rewardVisibleTracking(agent, settings, distance);
+    recordPhaseArrival(agent, settings, distance);
 }
 
 // floats0 = {rotation angle, orbit radius ratio, unused, unused}.
@@ -27,20 +35,35 @@ static_assert(brain.fitsCapacity());
 } // namespace
 
 const ScenarioDefinition& definition() {
-    static constexpr ScenarioDefinition value{"Rotating", brain, fitness, gpuParameters};
+    static constexpr ScenarioDefinition value{
+        .name = "Rotating",
+        .key = "rotating",
+        .id = BeaconScenario::Rotating,
+        .brain = brain,
+        .tunables = {.beaconRadiusRatio = true, .beaconAngularSpeed = true},
+        .beacons = beacons,
+        .beaconCount = 1,
+        .targetDistance = nullptr,
+        .phaseForStep = nullptr,
+        .fitness = fitness,
+        .achievedObjectives = achievedObjectives,
+        .objectivesPerAgent = 1,
+        .beforeStep = nullptr,
+        .afterStep = afterStep,
+        .gpuParameters = gpuParameters,
+    };
     return value;
 }
 
 Float4 beaconPosition(const AgentState& agent, const SimulationStep& settings) {
     const float orbitRadius = settings.worldRadius * settings.beaconRadiusRatio;
     const float targetLength = std::hypot(agent.target.x, agent.target.y);
-    const float baseX =
-        targetLength > 0.000001F ? agent.target.x / targetLength * orbitRadius : orbitRadius;
-    const float baseY =
-        targetLength > 0.000001F ? agent.target.y / targetLength * orbitRadius : 0.0F;
-    const float cosine = std::cos(settings.beaconRotationAngle);
-    const float sine = std::sin(settings.beaconRotationAngle);
-    return {baseX * cosine - baseY * sine, baseX * sine + baseY * cosine, 0.0F, 0.0F};
+    const kernel::vec2 baseDirection =
+        targetLength > 0.000001F
+            ? kernel::vec2{agent.target.x / targetLength, agent.target.y / targetLength}
+            : kernel::vec2{1.0F, 0.0F};
+    return scaledOffset(kernel::rotatingOrbitOffset(baseDirection, settings.beaconRotationAngle),
+                        orbitRadius);
 }
 
 ActiveBeacons beacons(const AgentState& agent, const SimulationStep& settings) {

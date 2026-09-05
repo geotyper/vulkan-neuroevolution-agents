@@ -8,6 +8,10 @@
    implementation details.
 3a. Simulation logic lives in drivers, not in modules: anything needed for an
    experiment must be reachable without a window.
+3b. A scenario is one contract, not a set of switches: adding one means adding a
+   source file, a shader pair and a registry line.
+3c. Anything the CPU and the GPU must agree on is either shared source or a
+   runtime parameter -- never a constant written twice.
 4. Add one evolutionary pressure at a time and keep deterministic replay tests.
 5. Prefer measurable behavioral milestones over adding simulation features in
    parallel.
@@ -99,7 +103,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [ ] optional GPU selection/mutation backend;
 - [x] scenario-owned active dense topology descriptors and recurrent outputs;
 - [ ] pluggable multi-layer/recurrent evaluator implementations;
-- [ ] scenario registry and data-driven experiment configuration;
+- [x] scenario registry and data-driven experiment configuration;
 - [x] batch/headless evolution executable;
 - [ ] shader hot reload and capture/replay tooling.
 
@@ -110,9 +114,29 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 sweeps and ablations produce results comparable with what the window shows:
 
 ```sh
-vkneuro_headless --scenario rotating --generations 200 --csv runs/rotating.csv                  --save-champion runs/rotating-champion.vkng
+vkneuro_headless --scenario rotating --generations 200 --csv runs/rotating.csv \
+                 --save-champion runs/rotating-champion.vkng
 vkneuro_headless --scenario forage --generations 200 --no-agent-light --quiet
+
+# Fitness shaping is a parameter, so a sweep needs no rebuild.
+for reward in 0.0 0.25 0.75; do
+  vkneuro_headless --scenario rotating --generations 50 --seed 5 \
+                   --tracking-reward "$reward" --csv "runs/tracking-$reward.csv"
+done
 ```
+
+## Adding a scenario
+
+1. `src/worlds/scenarios/<Name>Scenario.cpp` fills in a `ScenarioDefinition`:
+   brain shape, beacons, fitness, objective count, the optional before/after step
+   hooks, the tunables the UI should offer, and the GPU parameter packer.
+2. `shaders/worlds/<name>.glsl` unpacks the same parameter block for geometry,
+   and `shaders/worlds/steps/<name>.glsl` mirrors the step hooks.
+3. Add the enum value and one line to the registry in `src/worlds/WorldScenario.cpp`.
+
+Shared math belongs in `include/vkexp/worlds/ScenarioKernel.inl`, which both
+languages compile. Nothing else needs editing: the simulation, the scoring, the
+batch runner's `--scenario` list and the UI controls all read the definition.
 
 ## Immediate next step
 

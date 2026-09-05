@@ -35,6 +35,7 @@ struct Options {
     std::uint32_t seed{0xC0FFEEU};
     bool agentCollisions{true};
     bool agentLight{true};
+    vkexp::FitnessWeights fitness{};
     bool quiet{};
     std::string savePopulation;
     std::string saveChampion;
@@ -42,13 +43,24 @@ struct Options {
     std::string csvPath;
 };
 
+std::string scenarioKeyList() {
+    std::string keys;
+    for (const vkexp::ScenarioDefinition* definition : vkexp::scenarioRegistry()) {
+        keys += keys.empty() ? "" : "|";
+        keys += definition->key;
+    }
+    return keys;
+}
+
 void printHelp(const char* executable) {
+    // The scenario list comes from the registry, so a new scenario shows up in
+    // --help without editing this text.
     std::cout << "Usage: " << executable
               << " [options]\n\n"
                  "Runs neuroevolution without a window and reports per-generation fitness.\n\n"
                  "Experiment:\n"
-                 "  --scenario <name>        stationary|alternating|rotating|random|forage\n"
-                 "  --generations <n>        generations to run (default 20)\n"
+              << "  --scenario <name>        " << scenarioKeyList() << "\n"
+              << "  --generations <n>        generations to run (default 20)\n"
                  "  --steps <n>              steps per generation (default 900)\n"
                  "  --population <n>         genomes (default 512)\n"
                  "  --agents-per-world <n>   agents sharing one logical world (default 12)\n"
@@ -59,6 +71,12 @@ void printHelp(const char* executable) {
                  "Ablations:\n"
                  "  --no-agent-collisions    disable agent-agent collisions\n"
                  "  --no-agent-light         disable perception of other agents' signals\n\n"
+                 "Fitness shaping (sweepable without rebuilding):\n"
+                 "  --objective-bonus <x>    score per completed objective (default 2.0)\n"
+                 "  --motor-cost <x>         fitness charged per unit of effort (default 0.002)\n"
+                 "  --tracking-reward <x>    shaping for a moving beacon (default 0.25)\n"
+                 "  --signal-cost <x>        emission cost relative to moving (default 0.25)\n"
+                 "  --energy-drain <x>       battery drained per effort unit (default 0.0008)\n\n"
                  "Persistence:\n"
                  "  --load-population <path> resume from a genome archive\n"
                  "  --save-population <path> write the final population\n"
@@ -83,22 +101,12 @@ template <typename T> T parseNumber(const std::string_view text, const std::stri
 }
 
 vkexp::BeaconScenario parseScenario(const std::string_view name) {
-    if (name == "stationary") {
-        return vkexp::BeaconScenario::Stationary;
+    for (const vkexp::ScenarioDefinition* definition : vkexp::scenarioRegistry()) {
+        if (name == definition->key) {
+            return definition->id;
+        }
     }
-    if (name == "alternating") {
-        return vkexp::BeaconScenario::AlternatingDiagonals;
-    }
-    if (name == "rotating") {
-        return vkexp::BeaconScenario::Rotating;
-    }
-    if (name == "random") {
-        return vkexp::BeaconScenario::RandomMovement;
-    }
-    if (name == "forage") {
-        return vkexp::BeaconScenario::ForageHome;
-    }
-    fail("Unknown scenario: " + std::string{name});
+    fail("Unknown scenario: " + std::string{name} + " (expected one of " + scenarioKeyList() + ")");
 }
 
 Options parseOptions(const int argc, char** argv, bool& helpRequested) {
@@ -144,6 +152,16 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
                 : name == "square"
                     ? vkexp::WorldShape::Square
                     : throw std::runtime_error("Unknown world shape: " + std::string{name});
+        } else if (argument == "--objective-bonus") {
+            options.fitness.objectiveBonus = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--motor-cost") {
+            options.fitness.motorCostWeight = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--tracking-reward") {
+            options.fitness.trackingReward = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--signal-cost") {
+            options.fitness.signalCostFactor = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--energy-drain") {
+            options.fitness.energyDrain = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-agent-collisions") {
             options.agentCollisions = false;
         } else if (argument == "--no-agent-light") {
@@ -193,6 +211,7 @@ int run(const Options& options) {
     state.physics.worldRadius = vkexp::worldRadiusForSize(options.worldSize);
     state.physics.agentCollisionsEnabled = options.agentCollisions;
     state.physics.agentLightEnabled = options.agentLight;
+    state.physics.fitness = options.fitness;
 
     vkexp::EvolutionSettings evolution;
     evolution.populationSize = options.populationSize;

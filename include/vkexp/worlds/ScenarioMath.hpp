@@ -1,35 +1,67 @@
 #pragma once
 
 #include "vkexp/simulation/AgentTypes.hpp"
+#include "vkexp/worlds/ScenarioKernel.hpp"
+#include "vkexp/worlds/WorldScenario.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
 namespace vkexp::worlds {
 
-inline constexpr float tau = 6.28318530718F;
+// Hashing, beacon geometry and scenario timings live in ScenarioKernel.inl,
+// which the shaders compile from the same source. Everything below needs C++
+// types the shaders do not have.
+namespace kernel = ::vkexp::worlds::kernel;
+
+inline const float tau = kernel::ScenarioTau;
 inline constexpr std::array<Float4, 4> trialColors{
     Float4{0.20F, 0.85F, 1.00F, 0.0F}, Float4{1.00F, 0.35F, 0.75F, 0.0F},
     Float4{0.55F, 1.00F, 0.35F, 0.0F}, Float4{1.00F, 0.72F, 0.20F, 0.0F}};
 
-[[nodiscard]] inline std::uint32_t hash(std::uint32_t value) {
-    value ^= value >> 16U;
-    value *= 0x7feb352dU;
-    value ^= value >> 15U;
-    value *= 0x846ca68bU;
-    value ^= value >> 16U;
-    return value;
-}
-
-[[nodiscard]] inline float random01(const std::uint32_t value) {
-    return static_cast<float>(hash(value) & 0x00ffffffU) / 16777215.0F;
+[[nodiscard]] inline Float4 scaledOffset(const kernel::vec2 offset, const float scale) {
+    return {offset.x * scale, offset.y * scale, 0.0F, 0.0F};
 }
 
 [[nodiscard]] inline float objectiveFitness(const AgentState& agent,
-                                            const std::uint32_t completedObjectives) {
+                                            const std::uint32_t completedObjectives,
+                                            const FitnessWeights& weights) {
     return agent.metrics.w + (agent.metrics.x - agent.metrics.y) +
-           static_cast<float>(completedObjectives) * 2.0F - agent.metrics.z * 0.002F -
-           agent.penalties.x;
+           static_cast<float>(completedObjectives) * weights.objectiveBonus -
+           agent.metrics.z * weights.motorCostWeight - agent.penalties.x;
+}
+
+// Banks the progress made toward the previous objective and starts measuring the
+// next one. Shared by every scenario whose target can move mid-generation;
+// mirrored by scenarioBankProgress in shaders/worlds/steps/shared.glsl.
+inline void bankObjectiveProgress(AgentState& agent, const SimulationStep& settings,
+                                  const bool clampToPositive) {
+    const float progress = agent.metrics.x - agent.metrics.y;
+    agent.metrics.w += clampToPositive ? std::max(progress, 0.0F) : progress;
+    agent.metrics.x = nearestBeaconDistance(agent, settings);
+    agent.metrics.y = agent.metrics.x;
+}
+
+// Default arrival rule: mark the active phase as completed.
+inline void recordPhaseArrival(AgentState& agent, const SimulationStep& settings,
+                               const float distance) {
+    if (distance >= beaconArrivalRadius(settings)) {
+        return;
+    }
+    const std::uint32_t phaseBit = 1U << settings.beaconPhase;
+    const auto completedMask =
+        static_cast<std::uint32_t>(std::max(agent.target.w, 0.0F) + 0.5F) | phaseBit;
+    agent.target.w = static_cast<float>(completedMask);
+}
+
+// Continuous shaping for scenarios whose beacon keeps moving: without it a
+// tracking agent scores nothing between arrivals.
+inline void rewardVisibleTracking(AgentState& agent, const SimulationStep& settings,
+                                  const float distance) {
+    const float visibleCloseness =
+        std::clamp(1.0F - distance / settings.lightSensorRange, 0.0F, 1.0F);
+    agent.metrics.w += visibleCloseness * settings.deltaTime * settings.fitness.trackingReward;
 }
 
 } // namespace vkexp::worlds

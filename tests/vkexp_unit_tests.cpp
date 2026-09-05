@@ -6,6 +6,7 @@
 #include "vkexp/profiling/ProfilerTypes.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
 #include "vkexp/simulation/Sensors.hpp"
+#include "vkexp/worlds/ScenarioKernel.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
 #include <cmath>
@@ -13,7 +14,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -435,9 +438,104 @@ void testWallCollisionPenalty() {
                         agent.wallTouch1.z + agent.wallTouch1.w;
     check(touch > 0.0F, "World boundary produces tactile contact");
     check(agent.penalties.x > 0.0F, "World boundary accumulates a fitness penalty");
-    check(vkexp::agentFitness(agent) <
-              agent.metrics.w + (agent.metrics.x - agent.metrics.y) - agent.metrics.z * 0.002F,
+    const vkexp::FitnessWeights fitnessWeights{};
+    check(vkexp::agentFitness(agent, settings.beaconScenario, fitnessWeights) <
+              agent.metrics.w + (agent.metrics.x - agent.metrics.y) -
+                  agent.metrics.z * fitnessWeights.motorCostWeight,
           "Wall collision penalty lowers fitness");
+}
+
+void testScenarioRegistryContract() {
+    const std::span<const vkexp::ScenarioDefinition* const> registry = vkexp::scenarioRegistry();
+    check(registry.size() == vkexp::beaconScenarioCount, "Registry covers every BeaconScenario");
+    for (std::size_t index = 0; index < registry.size(); ++index) {
+        const vkexp::ScenarioDefinition& scenario = *registry[index];
+        const std::string label{scenario.name};
+        check(scenario.id == static_cast<vkexp::BeaconScenario>(index),
+              label + ": registry order matches the enum");
+        check(&vkexp::scenarioDefinition(scenario.id) == &scenario,
+              label + ": lookup returns the registered definition");
+        check(scenario.key != nullptr && scenario.key[0] != '\0', label + ": has a CLI key");
+        check(scenario.brain.fitsCapacity(), label + ": brain fits the genome capacity");
+
+        // beaconCount is declared separately because the renderer needs it
+        // without an agent; it must still agree with what beacons() reports.
+        vkexp::SimulationStep settings{};
+        settings.beaconScenario = scenario.id;
+        vkexp::AgentState agent{};
+        agent.target = {settings.worldRadius * 0.7F, 0.0F, 0.0F, 0.0F};
+        check(scenario.beacons(agent, settings).count == scenario.beaconCount,
+              label + ": declared beacon count matches the beacons it reports");
+
+        // Every scenario must be steppable without the caller knowing which it is.
+        const vkexp::neuro::Weights zeroWeights{};
+        vkexp::AgentState stepped = agent;
+        stepped.pose.w = 0.022F;
+        vkexp::stepAgentCpu(stepped, zeroWeights, settings);
+        check(std::isfinite(stepped.pose.x) && std::isfinite(stepped.metrics.w),
+              label + ": one step through the hooks stays finite");
+    }
+}
+
+void testFitnessWeightsAreParameters() {
+    vkexp::AgentState agent{};
+    agent.metrics = {2.0F, 1.0F, 10.0F, 3.0F};
+    agent.target.w = 1.0F; // one completed phase
+    const vkexp::BeaconScenario scenario = vkexp::BeaconScenario::Stationary;
+
+    vkexp::FitnessWeights base{};
+    const float reference = vkexp::agentFitness(agent, scenario, base);
+
+    vkexp::FitnessWeights doubledBonus = base;
+    doubledBonus.objectiveBonus = base.objectiveBonus * 2.0F;
+    check(closeTo(vkexp::agentFitness(agent, scenario, doubledBonus),
+                  reference + base.objectiveBonus),
+          "Objective bonus is a parameter, not a literal");
+
+    vkexp::FitnessWeights freeMotors = base;
+    freeMotors.motorCostWeight = 0.0F;
+    check(closeTo(vkexp::agentFitness(agent, scenario, freeMotors),
+                  reference + agent.metrics.z * base.motorCostWeight),
+          "Motor cost weight is a parameter, not a literal");
+}
+
+void testSharedScenarioKernel() {
+    namespace kernel = vkexp::worlds::kernel;
+    // The shaders compile these same functions from ScenarioKernel.inl, and the
+    // CPU/GPU parity tests compare the results; these checks pin the C++ side so
+    // a change to the shared source cannot pass unnoticed without a GPU.
+    check(kernel::scenarioHash(0U) == 0U, "Hash of zero is zero");
+    const float sample = kernel::scenarioRandom01(12345U);
+    check(sample >= 0.0F && sample <= 1.0F, "Scenario random is normalised");
+    check(closeTo(kernel::scenarioRandom01(12345U), sample), "Scenario random is deterministic");
+
+    check(kernel::forageHomeEpoch(0.0F) == 0U, "Forage epoch starts at zero");
+    check(kernel::forageHomeEpoch(kernel::ForageHomeRelocationSeconds + 0.1F) == 1U,
+          "Forage epoch advances at the relocation period");
+    check(kernel::forageHomeRelocated(kernel::ForageHomeRelocationSeconds, 1.0F / 60.0F),
+          "Forage relocation is reported on the epoch boundary");
+    check(!kernel::forageHomeRelocated(1.0F, 1.0F / 60.0F),
+          "Forage relocation is not reported mid-epoch");
+
+    const kernel::vec2 home = kernel::forageHomeOffset(kernel::forageHomeKey(7U, 1U, 2U));
+    const float homeRatio = kernel::length(home);
+    check(homeRatio >= kernel::ForageHomeMinimumRadiusRatio - 0.0001F &&
+              homeRatio <=
+                  kernel::ForageHomeMinimumRadiusRatio + kernel::ForageHomeRadiusRange + 0.0001F,
+          "Forage home stays inside its configured annulus");
+
+    // A quarter turn maps +x to +y.
+    const kernel::vec2 rotated =
+        kernel::rotatingOrbitOffset({1.0F, 0.0F}, kernel::ScenarioTau * 0.25F);
+    check(closeTo(rotated.x, 0.0F) && closeTo(rotated.y, 1.0F), "Orbit offset rotates correctly");
+
+    const kernel::vec2 wander =
+        kernel::randomWanderOffset(kernel::randomWanderKey(3U, 0U, 0U), 5.0F);
+    check(kernel::length(wander) <= 1.0F, "Wander offset stays within the roam radius");
+
+    check(kernel::alternatingDiagonalOffset(0U, 0U).x < 0.0F &&
+              kernel::alternatingDiagonalOffset(1U, 0U).x > 0.0F,
+          "Alternating beacons sit on opposite sides");
 }
 
 void testGenomeArchiveRoundTrip() {
@@ -593,6 +691,9 @@ int main() {
     testForageCycleAndMemory();
     testWallCollisionPenalty();
     testGeneticAlgorithm();
+    testScenarioRegistryContract();
+    testFitnessWeightsAreParameters();
+    testSharedScenarioKernel();
     testGenomeArchiveRoundTrip();
     testPopulationReload();
     testStepParameterPacking();

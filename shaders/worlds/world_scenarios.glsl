@@ -6,10 +6,6 @@
 #include "worlds/random_movement.glsl"
 #include "worlds/forage_home.glsl"
 
-uint scenarioBeaconCount(uint scenario) {
-    return scenario == 1u || scenario == 4u ? 2u : 1u;
-}
-
 vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint phase,
                             float worldRadius, ScenarioParameters sp) {
     if (scenario == 0u) {
@@ -38,18 +34,30 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
     return stationaryScenarioColor(trial);
 }
 
+// Scenario 4 scores against the beacon the agent is currently seeking rather than
+// the nearest one; the others take the nearest of `beaconCount` beacons. The
+// count comes from the scenario definition through the step parameters, so this
+// file never enumerates which scenarios have two beacons.
 float scenarioTargetDistance(uint scenario, Agent agent, vec2 position, uint phase,
-                             float worldRadius, ScenarioParameters sp) {
+                             float worldRadius, uint beaconCount, ScenarioParameters sp) {
     if (scenario == 4u) {
         const uint targetIndex = agent.internal.y >= 0.5 ? 1u : 0u;
         return length(scenarioBeaconPosition(scenario, agent, targetIndex, phase, worldRadius,
                                              sp) - position);
     }
     float nearest = worldRadius * 4.0;
-    for (uint index = 0u; index < scenarioBeaconCount(scenario); ++index) {
+    for (uint index = 0u; index < beaconCount; ++index) {
         nearest = min(nearest,
                       length(scenarioBeaconPosition(scenario, agent, index, phase, worldRadius,
                                                     sp) - position));
     }
     return nearest;
+}
+
+// Optional scenario-specific body colouring for the visualization.
+vec3 scenarioBodyTint(uint scenario, Agent agent, vec3 bodyColor) {
+    if (scenario == 4u) {
+        return forageHomeScenarioBodyTint(agent, bodyColor);
+    }
+    return bodyColor;
 }

@@ -5,7 +5,7 @@
 namespace vkexp::worlds::alternating {
 
 [[nodiscard]] const ScenarioDefinition& definition();
-[[nodiscard]] ActiveBeacons beacons(const SimulationStep& settings);
+[[nodiscard]] ActiveBeacons beacons(const AgentState& agent, const SimulationStep& settings);
 [[nodiscard]] std::uint32_t phaseForStep(std::uint32_t step, std::uint32_t stepsPerGeneration);
 
 } // namespace vkexp::worlds::alternating
