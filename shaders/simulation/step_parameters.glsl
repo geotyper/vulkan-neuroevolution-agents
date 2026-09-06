@@ -57,6 +57,10 @@ struct StepParameters {
     uint agentsPerWorld;
     FitnessWeights fitness;
     ScenarioParameters scenario;
+    uint neuronMemoryEnabled;
+    uint reserved0;
+    uint reserved1;
+    uint reserved2;
 };
 
 #endif

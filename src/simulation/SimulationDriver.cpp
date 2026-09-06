@@ -637,7 +637,11 @@ GpuStepParameters SimulationDriver::stepParameters(const std::uint32_t generatio
         settings.trailEnabled ? 1U : 0U,
         state_.worlds.agentsPerWorld,
         packFitnessWeights(settings.fitness),
-        scenario.gpuParameters(settings)};
+        scenario.gpuParameters(settings),
+        settings.neuronMemoryEnabled ? 1U : 0U,
+        0U,
+        0U,
+        0U};
 }
 
 std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,

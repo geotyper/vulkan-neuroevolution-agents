@@ -212,7 +212,11 @@ makeStepParameters(const vkexp::SimulationStep& settings, const std::uint32_t ag
             trailEnabled ? 1U : 0U,
             agentsPerWorld,
             vkexp::packFitnessWeights(settings.fitness),
-            scenario.gpuParameters(settings)};
+            scenario.gpuParameters(settings),
+            settings.neuronMemoryEnabled ? 1U : 0U,
+            0U,
+            0U,
+            0U};
 }
 
 // The agent_step pipeline wired up exactly like SimulationDriver does, with
@@ -819,7 +823,13 @@ void runAgentInteractionTest(vkexp::HeadlessComputeContext& context, const bool 
     // hidden neuron to the red emission output. Indices come from the shared
     // preset, so this keeps working when the sensor suite changes.
     namespace kernel = vkexp::neuro::kernel;
-    const vkexp::SimulationStep settings{};
+    vkexp::SimulationStep settings{};
+    // What is under test is the sensor path -- does one agent's light reach
+    // another's receptor and come back out of the network -- and it is read
+    // after a single step. A hidden neuron with a time constant deliberately
+    // cannot answer within one step, so memory is off here: this asks whether
+    // the wiring carries the signal, not how fast a neuron follows it.
+    settings.neuronMemoryEnabled = false;
     const vkexp::neuro::BrainShape brain = vkexp::scenarioDefinition(settings.beaconScenario).brain;
     const auto inputCount = static_cast<kernel::uint>(brain.inputCount);
     const auto hiddenCount = static_cast<kernel::uint>(brain.hiddenCount);

@@ -395,11 +395,21 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SliderFloat("Light exposure", &state_.physics.lightExposure, 0.1F, 4.0F);
     ImGui::Checkbox("Perceive agent light", &state_.physics.agentLightEnabled);
     ImGui::SeparatorText("Brain contract");
+    if (ImGui::Checkbox("Neuron memory", &state_.physics.neuronMemoryEnabled)) {
+        state_.controls.resetRequested = true;
+    }
+    ImGui::SetItemTooltip("Each hidden neuron holds its own state and integrates toward its "
+                          "input at an evolved time constant, so fast neurons are reflexes and "
+                          "slow ones hold a fact across seconds. Off pins every time constant to "
+                          "one step, which is the memoryless network exactly.");
     const neuro::BrainShape brain = scenarioDefinition(state_.physics.beaconScenario).brain;
     ImGui::Text("%zu inputs -> %zu tanh -> %zu outputs", brain.inputCount, brain.hiddenCount,
                 brain.outputCount);
     ImGui::TextDisabled("%zu active weights / %zu genome capacity", brain.weightCount(),
                         neuro::Topology::weightCount);
+    ImGui::TextDisabled("time constants %.0f ms .. %.1f s",
+                        static_cast<double>(neuro::kernel::BrainTimeConstantMinimum * 1000.0F),
+                        static_cast<double>(neuro::kernel::BrainTimeConstantMaximum));
     if (brain.outputCount > neuro::Topology::actuatorOutputCount) {
         ImGui::TextDisabled("light, touch, self, task state and recurrent memory");
         ImGui::TextDisabled("motors, RGB/light intensity and memory updates");

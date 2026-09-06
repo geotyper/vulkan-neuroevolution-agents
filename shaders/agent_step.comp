@@ -4,22 +4,10 @@
 #include "neuro/brain_kernel.glsl"
 #include "simulation/step_parameters.glsl"
 #include "simulation/trail_kernel.glsl"
+#include "simulation/agent_layout.glsl"
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-struct Agent {
-    vec4 pose;
-    vec4 motion;
-    vec4 signal;
-    vec4 target;
-    vec4 metrics;
-    vec4 penalties;
-    vec4 internal;
-    vec4 wallTouch0;
-    vec4 wallTouch1;
-    vec4 agentTouch0;
-    vec4 agentTouch1;
-};
 
 layout(std430, set = 0, binding = 0) readonly buffer InputAgents {
     Agent inputAgents[];
@@ -283,7 +271,19 @@ void main() {
             activation += weights[brainHiddenWeightIndex(base, inputCount, neuron, inputIndex)] *
                           inputs[inputIndex];
         }
-        hidden[neuron] = tanh(activation);
+        // Memory off pins the time constant to the step, which the shared
+        // integrator turns into a plain assignment: the same call, the same
+        // arithmetic, and the ablation is a parameter rather than a branch
+        // around the neuron.
+        const float timeConstant =
+            params.neuronMemoryEnabled != 0u
+                ? brainTimeConstant(weights[brainTimeConstantGeneIndex(
+                      base, inputCount, hiddenCount, outputCount, neuron)])
+                : params.deltaTime;
+        const float state = brainIntegrateNeuron(agentHiddenState(agent, neuron), activation,
+                                                 timeConstant, params.deltaTime);
+        agent.hidden[neuron >> 2u][neuron & 3u] = state;
+        hidden[neuron] = tanh(state);
     }
     float outputs[BrainOutputCapacity];
     for (uint neuron = 0; neuron < outputCount; ++neuron) {

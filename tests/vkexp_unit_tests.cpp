@@ -40,7 +40,9 @@ void check(const bool condition, const std::string_view message) {
     }
 }
 
-bool closeTo(const float left, const float right) { return std::abs(left - right) < 0.0001F; }
+bool closeTo(const float left, const float right, const float tolerance = 0.0001F) {
+    return std::abs(left - right) < tolerance;
+}
 
 void testTimingSeries() {
     vkexp::TimingSeries series;
@@ -780,6 +782,11 @@ void testWorldSnapshotRoundTrip() {
     snapshot.physics.trailEnabled = false;
     snapshot.physics.agentLightEnabled = false;
     snapshot.physics.agentCollisionsEnabled = true;
+    // Named here because the size assertion beside the saver's field lists does
+    // not catch a bool: this one was added to the settings without changing
+    // sizeof(SimulationStep) at all, having landed in padding the trailing bools
+    // already carried.
+    snapshot.physics.neuronMemoryEnabled = false;
 
     snapshot.genomes.resize(4);
     for (std::size_t index = 0; index < snapshot.genomes.size(); ++index) {
@@ -825,8 +832,31 @@ void testWorldSnapshotRoundTrip() {
               loaded.physics.beaconMotionSeed == 987654U && loaded.physics.beaconPhase == 3U,
           "Snapshot world identity round-trip");
     check(!loaded.physics.trailEnabled && !loaded.physics.agentLightEnabled &&
-              loaded.physics.agentCollisionsEnabled,
+              !loaded.physics.neuronMemoryEnabled && loaded.physics.agentCollisionsEnabled,
           "Snapshot ablation flags round-trip");
+
+    // Once more with every flag inverted, because one polarity proves nothing
+    // about a bool. All four default to true, so a flag the loader forgets to
+    // assign keeps its default and passes a test that only ever asks for true,
+    // while a flag the saver forgets to write reads back as false and passes a
+    // test that only ever asks for false. Only both directions catch both, and
+    // this is the check that has to: the size assertion beside the saver's field
+    // lists does not move when a bool is added, as neuronMemoryEnabled proved.
+    {
+        vkexp::WorldSnapshot inverted = snapshot;
+        inverted.physics.trailEnabled = true;
+        inverted.physics.agentLightEnabled = true;
+        inverted.physics.neuronMemoryEnabled = true;
+        inverted.physics.agentCollisionsEnabled = false;
+        inverted.physics.beaconPhaseChanged = true;
+        const std::filesystem::path invertedPath = path.parent_path() / "inverted.vknw";
+        vkexp::saveWorldSnapshot(invertedPath, inverted);
+        const vkexp::WorldSnapshot back = vkexp::loadWorldSnapshot(invertedPath);
+        check(back.physics.trailEnabled && back.physics.agentLightEnabled &&
+                  back.physics.neuronMemoryEnabled && !back.physics.agentCollisionsEnabled &&
+                  back.physics.beaconPhaseChanged,
+              "Snapshot ablation flags round-trip in both directions");
+    }
 
     bool weightsIdentical = loaded.genomes.size() == snapshot.genomes.size();
     for (std::size_t index = 0; weightsIdentical && index < snapshot.genomes.size(); ++index) {
@@ -948,6 +978,86 @@ void testResolvedStepSettings() {
           "Resolved motion time follows the step index");
 }
 
+void testNeuronTimeConstants() {
+    namespace kernel = vkexp::neuro::kernel;
+
+    // The gene enters a bounded, logarithmic range. Bounded because an unbounded
+    // time constant is either a step or an eternity and neither is a neuron;
+    // logarithmic because what a memory is worth is its order of magnitude.
+    check(kernel::brainTimeConstant(-40.0F) >= kernel::BrainTimeConstantMinimum * 0.999F,
+          "A very negative gene bottoms out at the shortest time constant");
+    check(kernel::brainTimeConstant(40.0F) <= kernel::BrainTimeConstantMaximum * 1.001F,
+          "A very positive gene tops out at the longest time constant");
+    check(kernel::brainTimeConstant(-1.0F) < kernel::brainTimeConstant(0.0F) &&
+              kernel::brainTimeConstant(0.0F) < kernel::brainTimeConstant(1.0F),
+          "The time constant grows with the gene");
+    check(closeTo(kernel::brainTimeConstant(0.0F),
+                  std::sqrt(kernel::BrainTimeConstantMinimum * kernel::BrainTimeConstantMaximum),
+                  1.0e-4F),
+          "A gene of zero lands on the geometric middle of the range");
+
+    // The identity the whole ablation rests on: a time constant of one step
+    // makes the update an assignment, so memory off is the memoryless network
+    // exactly rather than an approximation of it.
+    const float step = vkexp::units::fixedTimeStep;
+    check(kernel::brainIntegrateNeuron(0.37F, -0.85F, step, step) == -0.85F,
+          "A one-step time constant assigns the activation outright");
+    check(kernel::brainIntegrateNeuron(0.37F, -0.85F, step * 0.5F, step) == -0.85F,
+          "A time constant shorter than the step cannot overshoot");
+
+    // And the claim that makes a time constant mean something: after tau
+    // seconds a neuron has closed 1 - 1/e of the gap to its input, whatever the
+    // step rate. That is rule 3e for the brain -- a memory measured in seconds.
+    for (const float rate : {30.0F, 60.0F, 240.0F}) {
+        const float deltaTime = 1.0F / rate;
+        const float timeConstant = 0.5F;
+        float state = 0.0F;
+        const auto steps = static_cast<int>(timeConstant * rate);
+        for (int index = 0; index < steps; ++index) {
+            state = kernel::brainIntegrateNeuron(state, 1.0F, timeConstant, deltaTime);
+        }
+        check(std::abs(state - (1.0F - std::exp(-1.0F))) < 0.02F,
+              "One time constant of stepping closes 1 - 1/e of the gap at any rate");
+    }
+
+    // The evaluator honours both, and the stateless overload is the memory-off
+    // one rather than a second network.
+    vkexp::neuro::Weights weights{};
+    constexpr auto inputCount = static_cast<kernel::uint>(vkexp::neuro::Topology::inputCount);
+    constexpr auto hiddenCount = static_cast<kernel::uint>(vkexp::neuro::Topology::hiddenCount);
+    constexpr auto outputCount = static_cast<kernel::uint>(vkexp::neuro::Topology::outputCount);
+    weights[kernel::brainHiddenWeightIndex(0u, inputCount, 0u, 0u)] = 3.0F;
+    weights[kernel::brainOutputWeightIndex(0u, inputCount, hiddenCount, 0u, 0u)] = 3.0F;
+    vkexp::neuro::Inputs inputs{};
+    inputs[0] = 1.0F;
+
+    vkexp::neuro::HiddenState state{};
+    const vkexp::neuro::Outputs memoryless =
+        vkexp::neuro::evaluate(weights, inputs, state, step, false);
+    check(std::equal(memoryless.begin(), memoryless.end(),
+                     vkexp::neuro::evaluate(weights, inputs).begin()),
+          "Memory off is exactly what the stateless evaluator computes");
+
+    // A gene of zero is a quarter-second neuron, so one step must move it a
+    // fraction of the way and repeated steps must converge -- a neuron that
+    // reached its input immediately would not be holding anything.
+    vkexp::neuro::HiddenState remembering{};
+    const vkexp::neuro::Outputs firstStep =
+        vkexp::neuro::evaluate(weights, inputs, remembering, step, true);
+    // Checked on the state and not on the output: two tanh layers compress the
+    // difference until a genuinely sluggish neuron still drives the output most
+    // of the way, so the output is the wrong place to read a time constant.
+    check(closeTo(remembering[0], 3.0F * step / kernel::brainTimeConstant(0.0F), 1.0e-4F),
+          "One step moves a remembering neuron exactly dt/tau of the way");
+    check(std::abs(firstStep[0]) < std::abs(memoryless[0]),
+          "A remembering neuron drives its output less hard on the first step");
+    for (int index = 0; index < 400; ++index) {
+        (void)vkexp::neuro::evaluate(weights, inputs, remembering, step, true);
+    }
+    check(closeTo(remembering[0], 3.0F, 1.0e-3F),
+          "Held on a constant input, the neuron converges on its activation");
+}
+
 void testExperimentSweep() {
     vkexp::SweepState sweep;
     sweep.values = {0.0F, 0.5F, 1.0F};
@@ -1039,6 +1149,7 @@ int main() {
     testWallCollisionPenalty();
     testGeneticAlgorithm();
     testExperimentSweep();
+    testNeuronTimeConstants();
     testScenarioRegistryContract();
     testFitnessWeightsAreParameters();
     testSharedScenarioKernel();

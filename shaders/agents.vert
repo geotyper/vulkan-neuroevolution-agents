@@ -3,20 +3,9 @@
 
 #include "simulation/trail_kernel.glsl"
 #include "worlds/scenario_params.glsl"
+#include "neuro/brain_kernel.glsl"
+#include "simulation/agent_layout.glsl"
 
-struct Agent {
-    vec4 pose;
-    vec4 motion;
-    vec4 signal;
-    vec4 target;
-    vec4 metrics;
-    vec4 penalties;
-    vec4 internal;
-    vec4 wallTouch0;
-    vec4 wallTouch1;
-    vec4 agentTouch0;
-    vec4 agentTouch1;
-};
 
 layout(std430, set = 0, binding = 0) readonly buffer Agents {
     Agent agents[];

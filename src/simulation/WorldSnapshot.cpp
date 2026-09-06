@@ -79,11 +79,16 @@ template <typename Visit> void visitPhysics(SimulationStep& physics, Visit&& vis
 
 constexpr std::uint32_t physicsFloatCount = 36;
 
-// The one guard that cannot go stale by omission. visitPhysics and
-// PhysicsIntegers together have to name every field of SimulationStep, and
-// nothing but a size check notices when a new tunable is added and quietly not
-// saved. If this fires: add the field to one of the two lists above, bump
-// worldSnapshotVersion, then update this number.
+// visitPhysics and PhysicsIntegers together have to name every field of
+// SimulationStep, and this is what notices when a new tunable is added and
+// quietly not saved. If it fires: add the field to one of the two lists above,
+// bump worldSnapshotVersion, then update this number.
+//
+// It catches every float and every integer, but not a bool: `neuronMemoryEnabled`
+// was added to the settings without moving this number at all, having landed in
+// padding the trailing bools already carried. A new bool is therefore covered by
+// testWorldSnapshotRoundTrip naming it in both polarities, which is the check
+// that does not depend on the size changing.
 static_assert(sizeof(SimulationStep) == 172,
               "SimulationStep changed shape -- update the world snapshot field lists");
 
@@ -99,7 +104,7 @@ struct PhysicsIntegers {
     std::uint32_t agentCollisionsEnabled{};
     std::uint32_t agentLightEnabled{};
     std::uint32_t trailEnabled{};
-    std::uint32_t reserved{};
+    std::uint32_t neuronMemoryEnabled{};
 };
 
 static_assert(sizeof(PhysicsIntegers) == 40);
@@ -162,7 +167,7 @@ void saveWorldSnapshot(const std::filesystem::path& path, const WorldSnapshot& s
                                    physics.agentCollisionsEnabled ? 1U : 0U,
                                    physics.agentLightEnabled ? 1U : 0U,
                                    physics.trailEnabled ? 1U : 0U,
-                                   0U};
+                                   physics.neuronMemoryEnabled ? 1U : 0U};
     stream.write(reinterpret_cast<const char*>(&integers), sizeof(integers));
 
     for (const Genome& genome : snapshot.genomes) {
@@ -234,6 +239,7 @@ WorldSnapshot loadWorldSnapshot(const std::filesystem::path& path) {
     snapshot.physics.agentCollisionsEnabled = integers.agentCollisionsEnabled != 0;
     snapshot.physics.agentLightEnabled = integers.agentLightEnabled != 0;
     snapshot.physics.trailEnabled = integers.trailEnabled != 0;
+    snapshot.physics.neuronMemoryEnabled = integers.neuronMemoryEnabled != 0;
 
     snapshot.genomes.resize(header.genomeCount);
     for (Genome& genome : snapshot.genomes) {

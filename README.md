@@ -25,6 +25,9 @@ replay by step count -- while every physical quantity is expressed per second.
 - 8 full-body tactile sectors distinguishing walls from agents;
 - 3 ground antennae reading the RGB of a decaying trail field;
 - `61 inputs -> 20 tanh neurons -> 8 outputs`;
+- every hidden neuron holds its own state and an evolved time constant, so a
+  memory is measured in seconds and reflexes and slow facts separate by
+  selection;
 - outputs control left/right motors, RGB emission, emission intensity, and two
   recurrent memory cells;
 - inertial movement with linear/angular drag and hard linear/angular speed
@@ -150,6 +153,56 @@ done
 Worth running with a non-zero `--signal-cost`. While emitting is free, colour
 stays a free drift even under shared fitness: what pays back has to cost
 something first.
+
+## Neuron time constants
+
+Every hidden neuron carries its own state and integrates toward its activation
+at its own evolved time constant:
+
+```
+y += (dt / tau) * (-y + activation)
+h  = tanh(y)
+```
+
+`tau` is a gene, so how long a neuron remembers is selected for rather than
+designed, and different time scales become a trait evolution can separate: a
+fast neuron is a reflex that tracks its input within a step, a slow one holds a
+fact across seconds. `dt` enters explicitly, so a memory is measured in seconds
+and not in steps -- the same rule the rest of the physics follows. A time
+constant of half a second closes `1 - 1/e` of the gap to its input in half a
+second at 30 Hz, at 60 Hz and at 240 Hz, and the unit test asserts exactly that.
+
+The gene enters a bounded logarithmic range, from one step (16.7 ms) to four
+seconds. Logarithmic because what matters about a memory is its order of
+magnitude: a linear map would spend most of the gene range between two and four
+seconds. A gene of zero lands on the geometric middle, about 260 ms.
+
+This is where memory belongs. The two recurrent cells put it in the *output*
+layer, which cost two of the eight output slots and squeezed everything a brain
+might remember through a two-number bottleneck; time constants give all twenty
+neurons a state and take no output slot at all. The recurrent cells stay --
+they are an explicit, inspectable channel -- but they are no longer the only
+thing holding the past.
+
+**Ablation.** `tau = dt` makes the update `y = activation` exactly, which is the
+memoryless network this replaced, so **Neuron memory** off (or
+`--no-neuron-memory`) is literally the old behaviour rather than a
+reimplementation of it -- the same code path with one parameter changed, no
+second network and no branch around the neuron. Compare the two the same way as
+any other ablation:
+
+```sh
+for memory in "" "--no-neuron-memory"; do
+  vkneuro_headless --scenario scent --generations 60 --seed 5 $memory \
+                   --csv "runs/scent-memory${memory:+-off}.csv"
+done
+```
+
+The genome grew by one gene per hidden neuron and the agent record by one float
+per hidden neuron (176 to 256 bytes). Both file formats notice: world snapshots
+are at version 3 and reject version 2, and a genome archive from the old brain
+is rejected by the weight count it already records -- with a message naming the
+counts, which is more use than a version number would be.
 
 ## Replay
 
@@ -450,6 +503,8 @@ The next world feature should enter through a focused contract:
   become a function of the step rate;
 - walls and occlusion extend sensor/world queries;
 - richer recurrent cells or gated memory can extend the two-value recurrent state;
+- the neuron model is one shared integrator, so a gated unit would replace that
+  function rather than the loop around it;
 - internal walls and occlusion extend grid-backed world queries;
 - colony scoring replaces fitness aggregation without changing physics;
 - a different topology can become another evaluator/shader pair;

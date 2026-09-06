@@ -93,9 +93,25 @@ using Inputs = std::array<float, Topology::inputCount>;
 using Outputs = std::array<float, Topology::outputCount>;
 using Weights = std::array<float, Topology::weightCount>;
 
+// The continuous-time state of one brain's hidden layer, carried between steps.
+using HiddenState = std::array<float, Topology::hiddenCount>;
+
 // Single-network evaluator for tests, inspection and champion replay. It builds
 // the network from the same genome addressing the shader uses, so it is a way to
 // look inside one brain rather than a second implementation of the layout.
+//
+// Each hidden neuron is integrated toward its activation at its own evolved time
+// constant and the new state is left in `state`. With `neuronMemory` false every
+// time constant is pinned to `deltaTime`, which makes the update y = activation:
+// the memoryless network, reached by the same arithmetic rather than by a second
+// branch through it.
+[[nodiscard]] Outputs evaluate(std::span<const float, Topology::weightCount> weights,
+                               const Inputs& inputs, HiddenState& state, float deltaTime,
+                               bool neuronMemory, BrainShape shape = maximumBrainShape);
+
+// Stateless convenience for the tests and inspections that ask what a brain does
+// to one input vector with no history. Defined in terms of the above with a
+// fresh state and memory off, so there is one evaluator and not two.
 [[nodiscard]] Outputs evaluate(std::span<const float, Topology::weightCount> weights,
                                const Inputs& inputs, BrainShape shape = maximumBrainShape);
 

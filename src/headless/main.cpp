@@ -50,6 +50,7 @@ struct Options {
     std::optional<float> trailHalfLife;
     std::optional<float> trailCellSize;
     bool trailEnabled{true};
+    bool neuronMemory{true};
     bool quiet{};
     std::string savePopulation;
     std::string saveChampion;
@@ -92,7 +93,10 @@ void printHelp(const char* executable) {
                  "Ablations:\n"
                  "  --no-agent-collisions    disable agent-agent collisions\n"
                  "  --no-agent-light         disable perception of other agents' signals\n"
-                 "  --no-trail               disable the ground trail field entirely\n\n"
+                 "  --no-trail               disable the ground trail field entirely\n"
+                 "  --no-neuron-memory       pin every hidden neuron's time constant to the "
+                 "step,\n"
+                 "                           which is the memoryless network exactly\n\n"
                  "Trail field:\n"
                  "  --trail-deposit <x>      agent mark laid per second (default 4.0)\n"
                  "  --beacon-deposit <x>     beacon mark laid per second (default 12.0)\n"
@@ -217,6 +221,8 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.trailHalfLife = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-agent-collisions") {
             options.agentCollisions = false;
+        } else if (argument == "--no-neuron-memory") {
+            options.neuronMemory = false;
         } else if (argument == "--no-agent-light") {
             options.agentLight = false;
         } else if (argument == "--quiet") {
@@ -283,6 +289,7 @@ int run(const Options& options) {
         state.physics.maximumSpeed = *options.maximumSpeed;
     }
     state.physics.trailEnabled = options.trailEnabled;
+    state.physics.neuronMemoryEnabled = options.neuronMemory;
     if (options.trailDepositRate) {
         state.physics.trailDepositRate = *options.trailDepositRate;
     }
@@ -371,7 +378,8 @@ int run(const Options& options) {
                   << "Ablations:  agent collisions "
                   << (state.physics.agentCollisionsEnabled ? "on" : "OFF") << ", agent light "
                   << (state.physics.agentLightEnabled ? "on" : "OFF") << ", trail "
-                  << (state.physics.trailEnabled ? "on" : "OFF") << '\n';
+                  << (state.physics.trailEnabled ? "on" : "OFF") << ", neuron memory "
+                  << (state.physics.neuronMemoryEnabled ? "on" : "OFF") << '\n';
         // Only when it is on, so a default run's output stays byte-identical to
         // every run recorded before the option existed.
         if (state.physics.fitness.groupSharing > 0.0F) {

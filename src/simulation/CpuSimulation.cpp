@@ -37,8 +37,19 @@ void stepAgentCpu(AgentState& agent,
         scenario.beforeStep(agent, settings);
     }
     const neuro::BrainShape brain = scenario.brain;
+    // The neuron state lives on the agent, so the CPU path carries it the same
+    // way the shader does -- read it out, integrate, put it back -- rather than
+    // keeping a parallel store that could drift out of step with the GPU's.
+    neuro::HiddenState hidden{};
+    for (std::size_t neuron = 0; neuron < brain.hiddenCount; ++neuron) {
+        hidden[neuron] = agentHiddenState(agent, neuron);
+    }
     const neuro::Outputs output =
-        neuro::evaluate(weights, sampleAgentInputs(agent, settings), brain);
+        neuro::evaluate(weights, sampleAgentInputs(agent, settings), hidden, settings.deltaTime,
+                        settings.neuronMemoryEnabled, brain);
+    for (std::size_t neuron = 0; neuron < brain.hiddenCount; ++neuron) {
+        setAgentHiddenState(agent, neuron, hidden[neuron]);
+    }
     const float left = output[0];
     const float right = output[1];
     const float forwardX = std::cos(agent.pose.z);

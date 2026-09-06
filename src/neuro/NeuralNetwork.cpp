@@ -6,6 +6,7 @@
 namespace vkexp::neuro {
 
 Outputs evaluate(const std::span<const float, Topology::weightCount> weights, const Inputs& inputs,
+                 HiddenState& state, const float deltaTime, const bool neuronMemory,
                  const BrainShape shape) {
     if (!shape.fitsCapacity()) {
         throw std::invalid_argument("Neural-network shape exceeds genome capacity");
@@ -23,7 +24,16 @@ Outputs evaluate(const std::span<const float, Topology::weightCount> weights, co
             activation += weights[kernel::brainHiddenWeightIndex(base, inputCount, neuron, input)] *
                           inputs[input];
         }
-        hidden[neuron] = std::tanh(activation);
+        // Memory off pins the time constant to the step, which the shared
+        // integrator turns into a plain assignment. Same call either way.
+        const float timeConstant =
+            neuronMemory ? kernel::brainTimeConstant(
+                               weights[kernel::brainTimeConstantGeneIndex(
+                                   base, inputCount, hiddenCount, outputCount, neuron)])
+                         : deltaTime;
+        state[neuron] =
+            kernel::brainIntegrateNeuron(state[neuron], activation, timeConstant, deltaTime);
+        hidden[neuron] = std::tanh(state[neuron]);
     }
 
     Outputs outputs{};
@@ -38,6 +48,14 @@ Outputs evaluate(const std::span<const float, Topology::weightCount> weights, co
         outputs[neuron] = std::tanh(activation);
     }
     return outputs;
+}
+
+Outputs evaluate(const std::span<const float, Topology::weightCount> weights, const Inputs& inputs,
+                 const BrainShape shape) {
+    HiddenState state{};
+    // Any positive step works: with memory off the integrator assigns the
+    // activation outright, so the value cannot reach the result.
+    return evaluate(weights, inputs, state, 1.0F, false, shape);
 }
 
 } // namespace vkexp::neuro

@@ -116,12 +116,62 @@ VKEXP_BRAIN_MATH_FN float brainLuminance(float red, float green, float blue) {
     return red * BrainLuminanceRed + green * BrainLuminanceGreen + blue * BrainLuminanceBlue;
 }
 
+// --- neuron time constants ---------------------------------------------------
+//
+// Every hidden neuron carries its own state and its own time constant:
+//
+//     y += (dt / tau) * (-y + activation);   h = tanh(y)
+//
+// tau is a gene, so how long a neuron remembers is selected for rather than
+// designed, and different time scales become a trait evolution can separate: a
+// fast neuron is a reflex that tracks its input within a step, a slow one holds
+// a fact across seconds. dt enters explicitly, so a memory is measured in
+// seconds and not in steps -- the same rule 3e the rest of the physics follows.
+//
+// This is where memory belongs. The two recurrent cells put it in the *output*
+// layer, which cost two of the eight output slots and squeezed everything a
+// brain might remember through a two-number bottleneck. Time constants give all
+// twenty neurons a state and take no output slot at all.
+//
+// tau = dt makes the update y = activation exactly, which is the memoryless
+// network this replaced. That is what makes the whole feature ablatable without
+// a second code path: turned off it is literally the old behaviour rather than
+// a reimplementation of it.
+const float BrainTimeConstantMinimum = 0.0166666667f; // s, one step at 60 Hz
+const float BrainTimeConstantMaximum = 4.0f;          // s
+
+// Genes are unbounded, so the range is entered through a squash. It is
+// logarithmic because what matters about a memory is its order of magnitude,
+// not its linear length -- the useful settings crowd the short end, and a
+// linear map would spend most of the gene range between two and four seconds.
+// A gene of zero lands on the geometric middle, about 0.26 s.
+VKEXP_BRAIN_MATH_FN float brainTimeConstant(float gene) {
+    const float unit = 1.0f / (1.0f + exp(-gene));
+    return BrainTimeConstantMinimum *
+           pow(BrainTimeConstantMaximum / BrainTimeConstantMinimum, unit);
+}
+
+// One step of the continuous-time update, shared so the CPU evaluator and the
+// shader cannot integrate the neuron differently. The ratio is clamped at 1 so
+// a time constant shorter than the step cannot overshoot into oscillation --
+// which is also why tau bottoms out at one step rather than at zero.
+VKEXP_BRAIN_MATH_FN float brainIntegrateNeuron(float state, float activation, float timeConstant,
+                                               float deltaTime) {
+    const float rate = clamp(deltaTime / timeConstant, 0.0f, 1.0f);
+    return state + rate * (activation - state);
+}
+
 // --- genome addressing: one dense network laid out flat ----------------------
 //
 // [input->hidden weights][hidden biases][hidden->output weights][output biases]
+// [hidden time constants]
+//
+// The time constants go last so every earlier offset is unchanged and a
+// scenario that trims inputs or outputs still addresses a dense prefix.
 
 VKEXP_BRAIN_FN uint brainWeightCount(uint inputCount, uint hiddenCount, uint outputCount) {
-    return inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + outputCount;
+    return inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + outputCount +
+           hiddenCount;
 }
 
 VKEXP_BRAIN_FN uint brainHiddenWeightIndex(uint base, uint inputCount, uint neuron,
@@ -142,6 +192,12 @@ VKEXP_BRAIN_FN uint brainOutputWeightIndex(uint base, uint inputCount, uint hidd
 VKEXP_BRAIN_FN uint brainOutputBiasIndex(uint base, uint inputCount, uint hiddenCount,
                                          uint outputCount, uint neuron) {
     return base + inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + neuron;
+}
+
+VKEXP_BRAIN_FN uint brainTimeConstantGeneIndex(uint base, uint inputCount, uint hiddenCount,
+                                               uint outputCount, uint neuron) {
+    return base + inputCount * hiddenCount + hiddenCount + hiddenCount * outputCount + outputCount +
+           neuron;
 }
 
 // --- active shape packed into one uint for the GPU ---------------------------

@@ -110,6 +110,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [ ] optional GPU selection/mutation backend;
 - [x] scenario-owned active dense topology descriptors and recurrent outputs;
 - [x] one network preset driving the CPU evaluator, the shader and the tests;
+- [x] continuous-time hidden neurons with evolved time constants;
 - [ ] pluggable multi-layer/recurrent evaluator implementations;
 - [x] scenario registry and data-driven experiment configuration;
 - [x] batch/headless evolution executable;
@@ -144,6 +145,25 @@ Both languages compile it, so raising `BrainSelfInputCount` from 4 to 5 moves th
 CPU evaluator, the sensor sampler, the compute shader and the tests together, and
 nothing else needs editing. The block offsets are asserted to tile the input
 vector without gaps, so a sensor block that no longer fits fails loudly.
+
+## Neuron model
+
+Hidden neurons are continuous-time: each holds a state and integrates toward its
+activation at its own evolved time constant, `y += (dt/tau) * (-y + y_in)`. The
+integrator and the gene-to-tau mapping live in `BrainKernel.inl` beside the rest
+of the preset, so the CPU evaluator and the shader cannot integrate a neuron
+differently, and `dt` is explicit so a memory is a number of seconds rather than
+a number of steps.
+
+`tau = dt` reduces the update to `y = activation`, which is the memoryless
+network. That identity is what makes the ablation honest -- off is the old
+behaviour reached through the same arithmetic, not a second network -- and it is
+asserted directly rather than inferred.
+
+The state lives on the agent record, next to everything else a step carries, so
+the CPU path and the GPU path store it the same way and multi-step parity covers
+it without a separate harness. It is zero at the start of a generation, which is
+the whole of the reset semantics.
 
 ## Trail field
 
@@ -222,15 +242,12 @@ added tunable a build failure rather than a silently dropped field.
 
 ## Immediate next step
 
-Run the sharing sweep with a non-zero signal cost, then add receptor
-visualization. Replay is in place, so a champion evolved headlessly can be
-watched in the window; what is still missing is seeing what it perceives, which
-is what makes a later failure attributable to perception, control, fitness or
-evolution instead of only showing that population fitness stopped improving.
+Time constants are in and ablatable, and a world with obstacles is what makes
+them legible: on a rotating beacon there is nothing a memory is *for*, so a
+fitness curve is the only evidence and it says nothing about what was learned.
+Build the two-door world next, then measure the neurons against it with the
+ablation rather than against the old scenarios.
 
-Only after that is the brain worth changing. The candidate is CTRNN: give every
-hidden neuron its own state and an evolvable time constant, so fast neurons
-handle reflexes and slow ones hold a task across seconds, and memory stops
-costing two of the eight output slots. It grows the genome by `hiddenCount` and
-`AgentState` by one float per hidden neuron, and it invalidates both file
-formats -- which is the reason to measure the fitness question first.
+After that, receptor visualization -- seeing what a champion perceives is what
+makes a later failure attributable to perception, control, fitness or evolution
+instead of only showing that population fitness stopped improving.

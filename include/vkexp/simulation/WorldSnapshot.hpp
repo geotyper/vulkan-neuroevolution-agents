@@ -37,10 +37,12 @@ struct WorldSnapshot {
     std::uint32_t seed{};
 };
 
-// 2 added the group fitness sharing weight. A version 1 file describes a run
-// that had no such setting, which is not the same as one that had it at zero --
-// so it is rejected rather than defaulted.
-inline constexpr std::uint32_t worldSnapshotVersion = 2;
+// 2 added the group fitness sharing weight. 3 added neuron time constants: the
+// genome, the agent record and the settings all changed shape at once, so a
+// version 2 file cannot be reinterpreted into this run under any default. A
+// file that predates a setting is not a file that had it turned off, so both
+// bumps reject rather than fill in.
+inline constexpr std::uint32_t worldSnapshotVersion = 3;
 
 // Versioned and little-endian, like the genome archive, and just as strict: a
 // file from another brain topology, another agent layout or another scenario

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vkexp/neuro/BrainKernel.hpp"
 #include "vkexp/simulation/TrailKernel.hpp"
 #include "vkexp/simulation/Units.hpp"
 #include "vkexp/worlds/ScenarioKernel.hpp"
@@ -136,6 +137,11 @@ clampAgentsPerWorld(const std::uint32_t genomeCount, const std::uint32_t request
     return std::min(clamped, genomeCount - firstGenome);
 }
 
+// One vector per four hidden neurons, so the block follows the brain preset
+// instead of being resized by hand when the hidden layer changes width.
+inline constexpr std::size_t agentHiddenVectorCount =
+    (neuro::kernel::BrainHiddenCapacity + 3U) / 4U;
+
 struct alignas(16) Float4 {
     float x{};
     float y{};
@@ -156,13 +162,57 @@ struct alignas(16) AgentState {
     Float4 wallTouch1;  // wall contact sectors 4..7
     Float4 agentTouch0; // agent contact sectors 0..3
     Float4 agentTouch1; // agent contact sectors 4..7
+    // Continuous-time state of every hidden neuron, carried between steps and
+    // zero at the start of a generation -- which is the whole of the reset
+    // semantics: an agent begins each trial remembering nothing of the last.
+    // Four neurons per vector, derived from the preset rather than sized by
+    // hand, and mirrored by shaders/simulation/agent_layout.glsl.
+    std::array<Float4, agentHiddenVectorCount> hidden{};
 };
 
 static_assert(std::is_trivially_copyable_v<AgentState>);
-static_assert(sizeof(AgentState) == 176);
+static_assert(sizeof(AgentState) == 256);
 static_assert(offsetof(AgentState, metrics) == 64);
 static_assert(offsetof(AgentState, penalties) == 80);
 static_assert(offsetof(AgentState, internal) == 96);
+static_assert(offsetof(AgentState, hidden) == 176,
+              "The hidden block goes last, so every earlier offset the shaders "
+              "and the renderer use is unchanged");
+
+// Reading and writing one neuron's state. The shader does the same arithmetic on
+// its own vec4 array; this is index maths on a different substrate rather than a
+// second copy of the layout, the same way the tactile sectors are addressed.
+[[nodiscard]] inline float agentHiddenState(const AgentState& agent, const std::size_t neuron) {
+    const Float4& block = agent.hidden[neuron / 4];
+    switch (neuron % 4) {
+    case 0:
+        return block.x;
+    case 1:
+        return block.y;
+    case 2:
+        return block.z;
+    default:
+        return block.w;
+    }
+}
+
+inline void setAgentHiddenState(AgentState& agent, const std::size_t neuron, const float value) {
+    Float4& block = agent.hidden[neuron / 4];
+    switch (neuron % 4) {
+    case 0:
+        block.x = value;
+        break;
+    case 1:
+        block.y = value;
+        break;
+    case 2:
+        block.z = value;
+        break;
+    default:
+        block.w = value;
+        break;
+    }
+}
 static_assert(offsetof(AgentState, wallTouch0) == 112);
 
 // Shaping and energy coefficients. They used to be literals split between
@@ -255,6 +305,11 @@ struct SimulationStep {
     bool beaconPhaseChanged{};
     bool agentCollisionsEnabled{true};
     bool agentLightEnabled{true};
+    // Whether hidden neurons use their evolved time constants. Off pins every
+    // one of them to deltaTime, which makes the update y = activation and so
+    // reproduces the memoryless network exactly -- the ablation is the same code
+    // path with one parameter changed, not a second network.
+    bool neuronMemoryEnabled{true};
 };
 
 // Cells across the arena's bounding square. Constant in metres, so world size
@@ -349,14 +404,22 @@ struct alignas(16) GpuStepParameters {
     std::uint32_t agentsPerWorld{}; // lets one agent per world deposit the beacon
     GpuFitnessWeights fitness;
     ScenarioParameterBlock scenario;
+    // Appended rather than slotted in beside the other flags: every offset above
+    // is asserted and mirrored by the shader's struct, and moving one to save
+    // twelve bytes of padding would be paid for in a silent misread.
+    std::uint32_t neuronMemoryEnabled{};
+    std::uint32_t reserved0{};
+    std::uint32_t reserved1{};
+    std::uint32_t reserved2{};
 };
 
-static_assert(sizeof(GpuStepParameters) == 224);
+static_assert(sizeof(GpuStepParameters) == 240);
 static_assert(offsetof(GpuStepParameters, agentCount) == 64);
 static_assert(offsetof(GpuStepParameters, beaconScenario) == 96);
 static_assert(offsetof(GpuStepParameters, trailCellSize) == 112);
 static_assert(offsetof(GpuStepParameters, fitness) == 144);
 static_assert(offsetof(GpuStepParameters, scenario) == 176);
+static_assert(offsetof(GpuStepParameters, neuronMemoryEnabled) == 224);
 
 [[nodiscard]] constexpr GpuFitnessWeights packFitnessWeights(const FitnessWeights& weights) {
     return {weights.objectiveBonus,

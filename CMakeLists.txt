@@ -63,10 +63,10 @@ list(APPEND SHADER_INCLUDE_SOURCES ${SHADER_SHARED_KERNELS})
 set(SHADER_BINARIES)
 foreach(SHADER ${SHADER_SOURCES})
     set(SPIRV ${SHADER_BINARY_DIR}/${SHADER}.spv)
-    set(SHADER_EXTRA_DEPENDENCIES)
-    if(SHADER STREQUAL "agent_step.comp" OR SHADER STREQUAL "agents.vert")
-        set(SHADER_EXTRA_DEPENDENCIES ${SHADER_INCLUDE_SOURCES})
-    endif()
+    # Every shader now shares at least the agent layout, and a shader rebuilt
+    # against a stale copy of a shared contract is the failure this list exists
+    # to prevent, so they all depend on all of it.
+    set(SHADER_EXTRA_DEPENDENCIES ${SHADER_INCLUDE_SOURCES})
     add_custom_command(
         OUTPUT ${SPIRV}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_BINARY_DIR}
