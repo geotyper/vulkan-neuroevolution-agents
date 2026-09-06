@@ -59,17 +59,8 @@ inline void recordPhaseArrival(AgentState& agent, const SimulationStep& settings
 // the trial ends. Four scenarios run exactly this and differ only in what stands
 // between the two ends, so it lives here rather than being copied a fourth time.
 // Mirrored by scenarioDeliveryCycleAfterStep in shaders/worlds/steps/shared.glsl.
-//
-// `measureNextLegToTarget` picks what the next leg's progress is measured from.
-// True uses the scenario's current target, which has just switched and is the
-// thing the agent now has to reach. False uses the nearest beacon, which
-// immediately after an arrival is the beacon just reached -- so the leg starts
-// from zero, `metrics.y` can never fall below it, and the "got closer" gradient
-// never fires for that leg at all. Forage and scent relay were written that way
-// and keep it here: it is very likely a shaping bug, but changing it would
-// silently change what their recorded runs mean, so it is a separate decision.
 inline void deliveryCycleAfterStep(AgentState& agent, const SimulationStep& settings,
-                                   const float distance, const bool measureNextLegToTarget) {
+                                   const float distance) {
     if (agent.internal.y >= 0.5F) {
         agent.internal.x =
             std::max(0.0F, agent.internal.x - settings.forageCargoDecayRate * settings.deltaTime);
@@ -88,10 +79,13 @@ inline void deliveryCycleAfterStep(AgentState& agent, const SimulationStep& sett
         agent.internal.x = 1.0F;
         agent.internal.y = 1.0F;
     }
-    const ScenarioDefinition& scenario = scenarioDefinition(settings.beaconScenario);
-    agent.metrics.x = measureNextLegToTarget && scenario.targetDistance != nullptr
-                          ? scenario.targetDistance(agent, settings)
-                          : nearestBeaconDistance(agent, settings);
+    // Starts the next leg measuring from the target that has just become
+    // current. nearestBeaconDistance is misnamed for what it does here: it
+    // returns the scenario's own targetDistance whenever there is one, and only
+    // falls back to the nearest beacon for scenarios that have no switching
+    // target. Every cycle scenario has one, so this is the new target, not the
+    // beacon the agent is standing on.
+    agent.metrics.x = nearestBeaconDistance(agent, settings);
     agent.metrics.y = agent.metrics.x;
 }
 

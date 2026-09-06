@@ -2,5 +2,5 @@
 // the target that has just become current, so setting off around the wall
 // toward it is rewarded as progress.
 void shuttleScenarioAfterStep(inout Agent agent, float distance) {
-    scenarioDeliveryCycleAfterStep(agent, distance, true);
+    scenarioDeliveryCycleAfterStep(agent, distance);
 }

@@ -24,8 +24,7 @@ void scenarioRecordPhaseArrival(inout Agent agent, float distance) {
 // cycle packs the cargo decay rate into floats0.w and the pickup and delivery
 // rewards into floats1.x and floats1.y, so this reads fixed slots rather than
 // being told where they are.
-void scenarioDeliveryCycleAfterStep(inout Agent agent, float distance,
-                                    bool measureNextLegToTarget) {
+void scenarioDeliveryCycleAfterStep(inout Agent agent, float distance) {
     if (agent.internal.y >= 0.5) {
         agent.internal.x =
             max(0.0, agent.internal.x - params.scenario.floats0.w * params.deltaTime);
@@ -44,12 +43,9 @@ void scenarioDeliveryCycleAfterStep(inout Agent agent, float distance,
         agent.internal.x = 1.0;
         agent.internal.y = 1.0;
     }
-    agent.metrics.x =
-        measureNextLegToTarget
-            ? scenarioTargetDistance(params.beaconScenario, agent, agent.pose.xy,
-                                     params.beaconPhase, params.worldRadius, params.beaconCount,
-                                     params.scenario)
-            : nearestBeaconDistance(agent, agent.pose.xy);
+    // The target that has just become current: nearestBeaconDistance forwards
+    // straight to scenarioTargetDistance here, exactly as the C++ side does.
+    agent.metrics.x = nearestBeaconDistance(agent, agent.pose.xy);
     agent.metrics.y = agent.metrics.x;
 }
 

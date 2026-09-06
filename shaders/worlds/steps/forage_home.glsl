@@ -8,8 +8,6 @@ void forageHomeScenarioBeforeStep(inout Agent agent) {
 }
 
 // Mirrors afterStep in src/worlds/scenarios/ForageHomeScenario.cpp.
-// Measured from the nearest beacon, as this scenario always has -- see
-// scenarioDeliveryCycleAfterStep.
 void forageHomeScenarioAfterStep(inout Agent agent, float distance) {
-    scenarioDeliveryCycleAfterStep(agent, distance, false);
+    scenarioDeliveryCycleAfterStep(agent, distance);
 }

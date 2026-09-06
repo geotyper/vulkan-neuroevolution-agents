@@ -24,10 +24,8 @@ std::uint32_t achievedObjectives(const AgentState& agent) {
     return completedForageCycles(agent) > 0 ? 1U : 0U;
 }
 
-// True: the next leg is measured from the target that has just become current,
-// so crossing the wall toward it is rewarded as progress.
 void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
-    deliveryCycleAfterStep(agent, settings, distance, true);
+    deliveryCycleAfterStep(agent, settings, distance);
 }
 
 ObstacleBox obstacle(const std::uint32_t index, const AgentState& agent,

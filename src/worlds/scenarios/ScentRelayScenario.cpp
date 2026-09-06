@@ -26,11 +26,8 @@ std::uint32_t achievedObjectives(const AgentState& agent) {
     return completedForageCycles(agent) > 0 ? 1U : 0U;
 }
 
-// False: this scenario has always measured the next leg from the nearest beacon,
-// which right after an arrival is the one just reached. See
-// deliveryCycleAfterStep for why that is kept rather than quietly corrected.
 void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
-    deliveryCycleAfterStep(agent, settings, distance, false);
+    deliveryCycleAfterStep(agent, settings, distance);
 }
 
 // floats0 = {resource rotation angle, orbit radius ratio, unused, cargo decay rate},

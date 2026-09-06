@@ -30,11 +30,8 @@ void beforeStep(AgentState& agent, const SimulationStep& settings) {
     }
 }
 
-// False: this scenario has always measured the next leg from the nearest beacon,
-// which right after an arrival is the one just reached. See
-// deliveryCycleAfterStep for why that is kept rather than quietly corrected.
 void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
-    deliveryCycleAfterStep(agent, settings, distance, false);
+    deliveryCycleAfterStep(agent, settings, distance);
 }
 
 // floats0 = {resource rotation angle, orbit radius ratio, motion time, cargo decay rate},

@@ -31,7 +31,7 @@ std::uint32_t achievedObjectives(const AgentState& agent) {
 }
 
 void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
-    deliveryCycleAfterStep(agent, settings, distance, true);
+    deliveryCycleAfterStep(agent, settings, distance);
 }
 
 ObstacleBox obstacle(std::uint32_t, const AgentState&, const SimulationStep& settings) {
