@@ -290,6 +290,13 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
         draw(commands, scaleX, scaleY, state_.physics.worldRadius, 5, 0.85F, markVertices,
              state_.trail.cellsPerWorld);
     }
+    // Above the ground and under everything that moves: an obstacle is scenery
+    // an agent collides with, not a thing that acts.
+    const std::uint32_t obstacleCount =
+        scenarioDefinition(state_.physics.beaconScenario).obstacleCount;
+    if (obstacleCount > 0) {
+        draw(commands, scaleX, scaleY, state_.physics.worldRadius, 6, 1.0F, 6, obstacleCount);
+    }
     if (state_.display.agents) {
         draw(commands, scaleX, scaleY, state_.physics.worldRadius, 2, 0.14F, 48, visibleAgentCount);
     }

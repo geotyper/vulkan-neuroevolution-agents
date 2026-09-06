@@ -57,6 +57,9 @@ void main() {
     const uint agentIndex =
         (firstGenome + gl_InstanceIndex) * params.trialsPerGenome + trial;
     const uint firstAgentIndex = firstGenome * params.trialsPerGenome + trial;
+    // Modes that draw one thing per agent index into the agent; the rest read
+    // the visible world's first agent, which is what carries the trial the
+    // beacons and the obstacles are placed from.
     Agent agent = agents[params.mode == 0u || params.mode == 2u || params.mode == 4u
                              ? agentIndex
                              : firstAgentIndex];
@@ -127,6 +130,18 @@ void main() {
         color = vec4(scenarioBeaconColor(params.beaconScenario, gl_InstanceIndex,
                                          params.beaconPhase, trial),
                      params.opacity);
+    } else if (params.mode == 6) {
+        // One quad per obstacle box, placed by the same kernel the step uses, so
+        // what is drawn is what an agent will actually walk into.
+        const vec2 centre = scenarioObstacleCentre(params.beaconScenario, agent,
+                                                   uint(gl_InstanceIndex), params.worldRadius);
+        const vec2 halfExtent = scenarioObstacleHalfExtent(params.beaconScenario,
+                                                           uint(gl_InstanceIndex),
+                                                           params.worldRadius);
+        const vec2 corners[6] = vec2[](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
+                                       vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0));
+        world = centre + corners[gl_VertexIndex] * halfExtent;
+        color = vec4(0.20, 0.23, 0.30, params.opacity);
     } else if (params.mode == 2) {
         const float radius = agent.pose.w + agent.signal.a * 0.055;
         world = agent.pose.xy + circleVertex(gl_VertexIndex, radius, 16);

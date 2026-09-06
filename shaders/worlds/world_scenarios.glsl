@@ -6,6 +6,7 @@
 #include "worlds/random_movement.glsl"
 #include "worlds/forage_home.glsl"
 #include "worlds/scent_relay.glsl"
+#include "worlds/two_doors.glsl"
 
 vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint phase,
                             float worldRadius, ScenarioParameters sp) {
@@ -25,6 +26,9 @@ vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint p
     if (scenario == 4u) {
         return forageHomeScenarioPosition(agent, beaconIndex, worldRadius, sp);
     }
+    if (scenario == 6u) {
+        return twoDoorsScenarioPosition(beaconIndex, worldRadius);
+    }
     return scentRelayScenarioPosition(agent, beaconIndex, worldRadius, sp);
 }
 
@@ -38,6 +42,9 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
     if (scenario == 5u) {
         return scentRelayScenarioColor(beaconIndex);
     }
+    if (scenario == 6u) {
+        return twoDoorsScenarioColor(beaconIndex);
+    }
     return stationaryScenarioColor(trial);
 }
 
@@ -47,7 +54,7 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
 // file never enumerates which scenarios have two beacons.
 float scenarioTargetDistance(uint scenario, Agent agent, vec2 position, uint phase,
                              float worldRadius, uint beaconCount, ScenarioParameters sp) {
-    if (scenario == 4u || scenario == 5u) {
+    if (scenario == 4u || scenario == 5u || scenario == 6u) {
         const uint targetIndex = agent.internal.y >= 0.5 ? 1u : 0u;
         return length(scenarioBeaconPosition(scenario, agent, targetIndex, phase, worldRadius,
                                              sp) - position);
@@ -61,6 +68,23 @@ float scenarioTargetDistance(uint scenario, Agent agent, vec2 position, uint pha
     return nearest;
 }
 
+// Static geometry, dispatched like everything else here. Only one scenario has
+// any, and the count comes from the scenario definition through the step
+// parameters, so this returns a degenerate box rather than enumerating who does.
+vec2 scenarioObstacleCentre(uint scenario, Agent agent, uint index, float worldRadius) {
+    if (scenario == 6u) {
+        return twoDoorsBoxCentre(index, worldRadius, twoDoorsScenarioBlockedDoor(agent));
+    }
+    return vec2(0.0);
+}
+
+vec2 scenarioObstacleHalfExtent(uint scenario, uint index, float worldRadius) {
+    if (scenario == 6u) {
+        return twoDoorsBoxHalfExtent(index, worldRadius);
+    }
+    return vec2(0.0);
+}
+
 // Optional scenario-specific body colouring for the visualization.
 vec3 scenarioBodyTint(uint scenario, Agent agent, vec3 bodyColor) {
     if (scenario == 4u) {
@@ -68,6 +92,9 @@ vec3 scenarioBodyTint(uint scenario, Agent agent, vec3 bodyColor) {
     }
     if (scenario == 5u) {
         return scentRelayScenarioBodyTint(agent, bodyColor);
+    }
+    if (scenario == 6u) {
+        return twoDoorsScenarioBodyTint(agent, bodyColor);
     }
     return bodyColor;
 }

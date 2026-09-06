@@ -79,6 +79,8 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [x] per-trial GPU spatial grid for agent queries;
 - [x] circle-circle collision and tactile interaction tests;
 - [x] configurable fitness penalty for world-boundary contacts;
+- [x] static axis-aligned obstacles reported through the tactile channel;
+- [x] scenario-owned spawn placement;
 - [ ] wall-ray and occlusion parity tests;
 - [ ] procedural maze trials with train/evaluation seed separation.
 
@@ -242,12 +244,20 @@ added tunable a build failure rather than a silently dropped field.
 
 ## Immediate next step
 
-Time constants are in and ablatable, and a world with obstacles is what makes
-them legible: on a rotating beacon there is nothing a memory is *for*, so a
-fitness curve is the only evidence and it says nothing about what was learned.
-Build the two-door world next, then measure the neurons against it with the
-ablation rather than against the old scenarios.
+Measure. The two-door world and the time constants both exist and both are
+ablatable, so the questions are now experiments rather than opinions: run
+`--scenario doors` with and without `--no-neuron-memory` from the same seed, and
+run the sharing sweep on the same world. Objective completion is the number to
+read, not best fitness.
 
-After that, receptor visualization -- seeing what a champion perceives is what
-makes a later failure attributable to perception, control, fitness or evolution
-instead of only showing that population fitness stopped improving.
+Then receptor visualization -- seeing what a champion perceives is what makes a
+later failure attributable to perception, control, fitness or evolution instead
+of only showing that population fitness stopped improving. The two-door world
+makes that worth building: there is now a specific thing to look for in a
+champion, which there was not on an orbiting beacon.
+
+Held deliberately: the obstacle interface is axis-aligned boxes, not the general
+segment-and-material world interface milestone 3 describes. Boxes are what a
+wall with gaps needs, they reuse the existing contact response exactly, and the
+general interface should be written when a scenario needs something boxes cannot
+express rather than in advance of one.

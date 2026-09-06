@@ -319,6 +319,29 @@ void main() {
     agent.pose.xy += agent.motion.xy * params.deltaTime + positionCorrection;
     agent.pose.z += agent.motion.z * params.deltaTime;
 
+    // Mirrors the obstacle loop in stepAgentCpu, before the arena boundary so
+    // the arena has the last word on containment. An obstacle reports through
+    // the same tactile channel a wall does: to the network a barrier is a
+    // barrier, and no new input has to be found room for.
+    for (uint index = 0u; index < params.obstacleCount; ++index) {
+        const vec2 push = boxPushOut(
+            agent.pose.xy, agent.pose.w,
+            scenarioObstacleCentre(params.beaconScenario, agent, index, params.worldRadius),
+            scenarioObstacleHalfExtent(params.beaconScenario, index, params.worldRadius));
+        const float pushLength = length(push);
+        if (pushLength <= 0.0) {
+            continue;
+        }
+        agent.pose.xy += push;
+        const vec2 normal = push / pushLength;
+        const float into = -dot(agent.motion.xy, normal);
+        if (into > 0.0) {
+            agent.motion.xy += normal * into * (1.0 + params.collisionRestitution);
+        }
+        recordTouch(agent, contactSector(normal, agent.pose.z),
+                    0.25 + max(into, 0.0) / params.maximumSpeed, true);
+    }
+
     const float maximumCenterDistance = max(params.worldRadius - agent.pose.w, 0.0);
     if (params.worldShape == 0) {
         const float centerDistance = length(agent.pose.xy);

@@ -32,9 +32,10 @@ enum class BeaconScenario : std::uint32_t {
     RandomMovement = 3,
     ForageHome = 4,
     ScentRelay = 5,
+    TwoDoors = 6,
 };
 
-inline constexpr std::size_t beaconScenarioCount = 6;
+inline constexpr std::size_t beaconScenarioCount = 7;
 
 // Body radius in metres: a 4.4 cm disc, roughly an e-puck-class table robot.
 // Stored per agent in `pose.w`, so a scenario may vary it; this is the spawn
@@ -408,7 +409,7 @@ struct alignas(16) GpuStepParameters {
     // is asserted and mirrored by the shader's struct, and moving one to save
     // twelve bytes of padding would be paid for in a silent misread.
     std::uint32_t neuronMemoryEnabled{};
-    std::uint32_t reserved0{};
+    std::uint32_t obstacleCount{};
     std::uint32_t reserved1{};
     std::uint32_t reserved2{};
 };

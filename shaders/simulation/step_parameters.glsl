@@ -58,7 +58,7 @@ struct StepParameters {
     FitnessWeights fitness;
     ScenarioParameters scenario;
     uint neuronMemoryEnabled;
-    uint reserved0;
+    uint obstacleCount;
     uint reserved1;
     uint reserved2;
 };

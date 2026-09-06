@@ -1058,6 +1058,131 @@ void testNeuronTimeConstants() {
           "Held on a constant input, the neuron converges on its activation");
 }
 
+void testTwoDoorsGeometry() {
+    namespace kernel = vkexp::worlds::kernel;
+    constexpr float radius = 1.84F;
+
+    const auto insideAnyBox = [&](const float x, const float y, const std::uint32_t blocked) {
+        for (kernel::uint index = 0; index < kernel::TwoDoorsBoxCount; ++index) {
+            const kernel::vec2 centre = kernel::twoDoorsBoxCentre(index, radius, blocked);
+            const kernel::vec2 halfExtent = kernel::twoDoorsBoxHalfExtent(index, radius);
+            if (std::abs(x - centre.x) <= halfExtent.x && std::abs(y - centre.y) <= halfExtent.y) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Whether the world is a task at all comes down to the wall having exactly
+    // two gaps in it, so that is checked as a wall rather than as six boxes: the
+    // line y = 0 must be solid everywhere except at the two door centres.
+    for (const std::uint32_t blocked : {0U, 1U}) {
+        const float leftDoor = kernel::twoDoorsDoorCentre(0U, radius);
+        const float rightDoor = kernel::twoDoorsDoorCentre(1U, radius);
+        check(!insideAnyBox(leftDoor, 0.0F, blocked) && !insideAnyBox(rightDoor, 0.0F, blocked),
+              "Both doors are open at the wall");
+        check(insideAnyBox(0.0F, 0.0F, blocked) && insideAnyBox(-radius * 0.9F, 0.0F, blocked) &&
+                  insideAnyBox(radius * 0.9F, 0.0F, blocked),
+              "The wall is solid between and outside the doors");
+
+        // Sweeping the line is what catches a gap the three segments leave by
+        // arithmetic rather than by design -- a seam at a segment join would
+        // pass every point check above and let every agent through.
+        bool solidExceptAtDoors = true;
+        for (int sample = -400; sample <= 400; ++sample) {
+            const float x = static_cast<float>(sample) / 400.0F * radius;
+            const float doorHalf = kernel::TwoDoorsDoorHalfWidth * radius;
+            // Just outside the doors, not just inside them: the segments meet
+            // the door edges exactly, so a sample on an edge belongs to neither
+            // and would report a seam that is not there.
+            const bool inADoor = std::abs(x - leftDoor) < doorHalf * 1.01F ||
+                                 std::abs(x - rightDoor) < doorHalf * 1.01F;
+            if (!inADoor && !insideAnyBox(x, 0.0F, blocked)) {
+                solidExceptAtDoors = false;
+            }
+        }
+        check(solidExceptAtDoors, "The wall has no seam between its segments");
+
+        // The dead end has to be a dead end. From inside the pocket the cap and
+        // both sides are solid; if any of the three were missing the agent could
+        // walk around and the world would be two open doors with extra scenery.
+        const float blockedX = kernel::twoDoorsDoorCentre(blocked, radius);
+        const float depth = kernel::TwoDoorsPocketDepth * radius;
+        const float doorHalf = kernel::TwoDoorsDoorHalfWidth * radius;
+        const float side = doorHalf + kernel::TwoDoorsWallHalfThickness * radius;
+        // Swept, not sampled at a point: a cap shrunk to zero width still
+        // contains its own centre, so a single probe there proves nothing about
+        // whether the pocket is closed.
+        bool capSolid = true;
+        bool sidesSolid = true;
+        for (int sample = 0; sample <= 100; ++sample) {
+            const float across =
+                blockedX + (static_cast<float>(sample) / 50.0F - 1.0F) * doorHalf;
+            if (!insideAnyBox(across, depth, blocked)) {
+                capSolid = false;
+            }
+            const float up = static_cast<float>(sample) / 100.0F * depth;
+            if (!insideAnyBox(blockedX - side, up, blocked) ||
+                !insideAnyBox(blockedX + side, up, blocked)) {
+                sidesSolid = false;
+            }
+        }
+        check(capSolid, "The pocket is capped across its full width");
+        check(sidesSolid, "The pocket is closed up both sides, from wall to cap");
+
+        // And the other door is genuinely a way through: the whole column above
+        // it, to past the depth the pocket reaches, is clear.
+        const float openX = kernel::twoDoorsDoorCentre(1U - blocked, radius);
+        bool openColumnClear = true;
+        for (int sample = 0; sample <= 200; ++sample) {
+            const float y = -depth + static_cast<float>(sample) / 200.0F * (depth * 3.0F);
+            if (insideAnyBox(openX, y, blocked)) {
+                openColumnClear = false;
+            }
+        }
+        check(openColumnClear, "The open door leads all the way through");
+    }
+
+    // Every box has to be thicker than the furthest an agent travels in one
+    // step, or a fast agent steps clean over it between two contact tests and
+    // the wall is decorative. This is also what a degenerate box fails: a
+    // zero-width side still contains its own centre and passes any sampling.
+    const float stepReach = vkexp::SimulationStep{}.maximumSpeed * vkexp::units::fixedTimeStep;
+    bool everyBoxStopsAnAgent = true;
+    for (const std::uint32_t blocked : {0U, 1U}) {
+        for (kernel::uint index = 0; index < kernel::TwoDoorsBoxCount; ++index) {
+            const kernel::vec2 halfExtent = kernel::twoDoorsBoxHalfExtent(index, radius);
+            (void)kernel::twoDoorsBoxCentre(index, radius, blocked);
+            if (halfExtent.x < stepReach || halfExtent.y < stepReach) {
+                everyBoxStopsAnAgent = false;
+            }
+        }
+    }
+    check(everyBoxStopsAnAgent, "No barrier is thin enough for an agent to step over in one step");
+
+    check(kernel::twoDoorsBlockedDoor(0U) != kernel::twoDoorsBlockedDoor(1U) &&
+              kernel::twoDoorsBlockedDoor(0U) == kernel::twoDoorsBlockedDoor(2U),
+          "The dead end swaps every trial");
+
+    // Push-out separates and does not teleport: an agent overlapping a wall ends
+    // up outside it, on the side it came from.
+    const kernel::vec2 centre = kernel::twoDoorsBoxCentre(1U, radius, 0U);
+    const kernel::vec2 halfExtent = kernel::twoDoorsBoxHalfExtent(1U, radius);
+    const float body = vkexp::agentBodyRadius;
+    const kernel::vec2 fromBelow =
+        kernel::boxPushOut({0.0F, centre.y - halfExtent.y - body * 0.5F}, body, centre, halfExtent);
+    check(fromBelow.y < 0.0F && closeTo(fromBelow.x, 0.0F),
+          "A wall pushes an agent back the way it came");
+    check(closeTo(kernel::boxPushOut({0.0F, centre.y - halfExtent.y - body * 2.0F}, body, centre,
+                                     halfExtent)
+                      .y,
+                  0.0F),
+          "A clear agent is not pushed at all");
+    const float resolved = centre.y - halfExtent.y - body * 0.5F + fromBelow.y;
+    check(std::abs(resolved - centre.y) >= halfExtent.y + body - 1.0e-5F,
+          "The push-out fully separates the circle from the box");
+}
+
 void testExperimentSweep() {
     vkexp::SweepState sweep;
     sweep.values = {0.0F, 0.5F, 1.0F};
@@ -1150,6 +1275,7 @@ int main() {
     testGeneticAlgorithm();
     testExperimentSweep();
     testNeuronTimeConstants();
+    testTwoDoorsGeometry();
     testScenarioRegistryContract();
     testFitnessWeightsAreParameters();
     testSharedScenarioKernel();

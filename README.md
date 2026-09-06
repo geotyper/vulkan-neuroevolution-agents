@@ -82,6 +82,7 @@ only work from one spawn position or heading.
 | Beacon scenario | Random movement | Each trial follows a smooth bounded wandering path with adjustable speed and a configurable teleport chance checked every three seconds. |
 | Beacon scenario | Forage + home | Agents collect an orange orbiting resource, then carry its decaying value to a blue home that relocates every eight seconds before seeking the resource again. |
 | Beacon scenario | Scent relay | The same collect-and-deliver cycle, but home emits no light and lays no trail: it can only be found by dead reckoning or by a path the agents themselves marked. |
+| Beacon scenario | Two doors | The same cycle across a wall with two gaps, one of which is a dead end. Which one swaps every trial, and from the home side they are identical. |
 
 Changing the world size, shape, or beacon scenario resets the evolution because
 fitness values gathered in different environments are not directly comparable.
@@ -98,6 +99,67 @@ is absent from every light sensor and lays nothing on the ground. What the
 agents do leave behind is their own trail, coloured by their own signal output,
 which the antennae can read. Nothing in the fitness function mentions colour, so
 whether a shared meaning emerges is the experiment rather than the design.
+
+## Two doors
+
+A wall runs across the arena with two gaps in it. One leads through to the
+resource; the other opens into a closed pocket. Which gap is the dead end swaps
+every trial, and a genome is evaluated on all four trials, so it cannot win by
+always turning the same way. The trial index is not among the network's inputs,
+so it cannot be read off either -- the only way to know is to have gone.
+
+```
+                resource
+   +-------------------------------+
+   |            #####              |   pocket cap
+   |            #   #              |   pocket sides
+   |#########  ###########  #######|   the wall, at y = 0
+   |         A            B        |
+   |                               |
+   |             home              |
+   +-------------------------------+
+```
+
+This is the world the neuron time constants were built for. On an orbiting
+beacon there is nothing a memory is *for*, so a fitness curve was the only
+evidence and it said nothing about what had been learned. Here there is
+something specific to hold across seconds -- which gap was a dead end this
+trial -- and something specific to watch for: an agent that blunders into the
+pocket once and then goes straight to the other gap looks different from one
+that does not.
+
+Both beacons are lit, unlike the scent relay. The question this world asks is
+which gap leads through, and an invisible home would stack a second, already
+answered question on top of it and make the answer to neither legible.
+
+**Why colour has an incentive here.** An agent that has been into the pocket is
+the only one that knows, and it leaves a coloured trail as it comes back out.
+Marking the dead end pays its own next cycle back within the same trial, not
+only its neighbours' -- so unlike the scent relay, the signalling channel has an
+individual incentive that does not depend on turning group fitness sharing on.
+Nothing in the fitness function mentions colour; whether a mark acquires a
+meaning is still the experiment rather than the design.
+
+**Geometry.** Six axis-aligned boxes, derived from the arena radius by
+`ScenarioKernel.inl` rather than stored, so they cost no parameter slot and the
+CPU and the shader cannot disagree about where a wall is. Contact reports
+through the same tactile channel the arena boundary uses: to the network a
+barrier is a barrier, and no new input had to be found room for. The unit test
+sweeps the wall line for a seam between segments, sweeps the pocket boundary for
+a way out, and asserts that no barrier is thinner than the distance an agent
+covers in one step -- a wall a fast agent steps over between two contact tests
+is decoration.
+
+The scenario also places its own spawn: the driver's default spiral covers the
+whole arena, which here would start half the population already past the wall
+with nothing left to solve.
+
+```sh
+vkneuro_headless --scenario doors --generations 200 --seed 5 --csv runs/doors.csv
+# and the same run without neuron memory, to see what the time constants bought
+vkneuro_headless --scenario doors --generations 200 --seed 5 --no-neuron-memory \
+                 --csv runs/doors-no-memory.csv
+```
 
 ## Group fitness sharing
 

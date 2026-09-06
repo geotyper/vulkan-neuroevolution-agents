@@ -80,6 +80,33 @@ void stepAgentCpu(AgentState& agent,
     agent.agentTouch0 = {};
     agent.agentTouch1 = {};
 
+    // Static geometry, before the arena boundary so the arena has the last word
+    // on containment. An obstacle reports through the same tactile channel a
+    // wall does: to the network a barrier is a barrier, and nothing here adds an
+    // input the brain would have to be re-shaped for.
+    for (std::uint32_t index = 0; index < scenario.obstacleCount; ++index) {
+        const ObstacleBox box = scenario.obstacle(index, agent, settings);
+        const worlds::kernel::vec2 push = worlds::kernel::boxPushOut(
+            {agent.pose.x, agent.pose.y}, agent.pose.w, {box.centre.x, box.centre.y},
+            {box.halfExtent.x, box.halfExtent.y});
+        const float pushLength = std::sqrt(push.x * push.x + push.y * push.y);
+        if (pushLength <= 0.0F) {
+            continue;
+        }
+        agent.pose.x += push.x;
+        agent.pose.y += push.y;
+        const float normalX = push.x / pushLength;
+        const float normalY = push.y / pushLength;
+        const float into = -(agent.motion.x * normalX + agent.motion.y * normalY);
+        if (into > 0.0F) {
+            const float impulse = into * (1.0F + settings.collisionRestitution);
+            agent.motion.x += normalX * impulse;
+            agent.motion.y += normalY * impulse;
+        }
+        recordWallContact(agent, normalX, normalY,
+                          0.25F + std::max(into, 0.0F) / settings.maximumSpeed);
+    }
+
     const float maximumCenterDistance = std::max(settings.worldRadius - agent.pose.w, 0.0F);
     if (settings.worldShape == WorldShape::Circle) {
         const float centerDistance =

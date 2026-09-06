@@ -19,6 +19,14 @@ struct Beacon {
     Float4 color;
 };
 
+// One static, axis-aligned obstacle. Boxes and not segments because the contact
+// test is then a clamp and a subtraction, identical in both languages, and a
+// wall of any shape this experiment needs is a handful of boxes.
+struct ObstacleBox {
+    Float4 centre;     // xy
+    Float4 halfExtent; // xy
+};
+
 struct ActiveBeacons {
     std::array<Beacon, 2> values{};
     std::size_t count{};
@@ -43,6 +51,13 @@ using ScenarioAfterStep = void (*)(AgentState& agent, const SimulationStep& sett
 // Packs the scenario's own GPU parameters. `settings` must already be resolved
 // for the step being packed (see resolveStepSettings).
 using ScenarioGpuPacker = ScenarioParameterBlock (*)(const SimulationStep& settings);
+// One of the scenario's obstacle boxes. Which boxes exist may depend on the
+// agent, because the trial decides which gap is a dead end.
+using ScenarioObstacle = ObstacleBox (*)(std::uint32_t index, const AgentState& agent,
+                                         const SimulationStep& settings);
+// Where an agent starts. Null keeps the driver's default spiral; a scenario with
+// a divided arena needs to say which side of it a trial begins on.
+using ScenarioSpawn = void (*)(AgentState& agent, const SimulationStep& settings);
 
 // Which shared tunables this scenario actually reads. The UI shows controls from
 // these flags instead of switching on the scenario identity.
@@ -86,6 +101,14 @@ struct ScenarioDefinition {
     // Mirrored by shaders/worlds/steps/<scenario>.glsl.
     ScenarioBeforeStep beforeStep{};
     ScenarioAfterStep afterStep{};
+
+    // Static geometry, the same way beacons work: a count the step loop and the
+    // renderer both read, and one accessor. Zero means an empty arena, which is
+    // every scenario but one.
+    std::uint32_t obstacleCount{};
+    ScenarioObstacle obstacle{};
+
+    ScenarioSpawn spawn{};
 
     ScenarioGpuPacker gpuParameters{};
 };

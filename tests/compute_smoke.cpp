@@ -3,6 +3,7 @@
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/simulation/AgentTypes.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
+#include "vkexp/simulation/StepParameters.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
 #include <vulkan/vulkan.h>
@@ -158,66 +159,28 @@ constexpr float parityGridCellSize = 0.12F;
 // a changed shader constant, say -- overshoots it by another order.
 constexpr double accumulatedDriftBudget = 1.0e-3;
 
-// Mirrors SimulationDriver::stepParameters so the tests exercise the same
-// packing path the application uses instead of a private copy of it.
+// The driver's own packing, called rather than copied: this used to be a private
+// mirror of it and twice quietly ran the shader with a field the CPU reference
+// had set.
 vkexp::GpuStepParameters
 makeStepParameters(const vkexp::SimulationStep& settings, const std::uint32_t agentCount,
                    const std::uint32_t trialsPerGenome, const std::uint32_t gridWidth,
                    const std::uint32_t gridCellsPerWorld, const std::uint32_t trailWidth = 1,
                    const std::uint32_t trailCellsPerWorld = 1,
                    const std::uint32_t agentsPerWorld = 1,
-                   // The trail field is GPU-only state with no CPU
-                   // counterpart, so parity runs with it off and
-                   // runTrailFieldProbe covers it directly.
+                   // The trail field is GPU-only state with no CPU counterpart,
+                   // so parity runs with it off and runTrailFieldProbe covers it
+                   // directly.
                    const bool trailEnabled = false) {
-    const vkexp::ScenarioDefinition& scenario = vkexp::scenarioDefinition(settings.beaconScenario);
-    return {settings.deltaTime,
-            settings.worldRadius,
-            settings.thrust,
-            settings.turnAcceleration,
-            settings.linearDrag,
-            settings.angularDrag,
-            settings.sensorFieldOfView,
-            vkexp::beaconArrivalRadius(settings),
-            settings.maximumSpeed,
-            settings.maximumAngularSpeed,
-            settings.lightSensorRange,
-            settings.lightExposure,
-            settings.collisionRestitution,
-            settings.contactStiffness,
-            parityGridCellSize,
-            settings.wallCollisionPenalty,
-            agentCount,
-            vkexp::neuro::packBrainLayout(scenario.brain),
-            trialsPerGenome,
-            static_cast<std::uint32_t>(settings.worldShape),
-            gridWidth,
-            gridCellsPerWorld,
-            settings.agentCollisionsEnabled ? 1U : 0U,
-            settings.agentLightEnabled ? 1U : 0U,
-            static_cast<std::uint32_t>(settings.beaconScenario),
-            settings.beaconPhase,
-            settings.beaconPhaseChanged ? 1U : 0U,
-            scenario.beaconCount,
-            settings.trailCellSize,
-            vkexp::trail::kernel::trailSurvival(
-                vkexp::trail::kernel::trailDecayRateForHalfLife(settings.trailHalfLife),
-                settings.deltaTime),
-            settings.trailDepositRate * settings.deltaTime *
-                vkexp::trail::kernel::TrailFixedPointScale,
-            settings.beaconTrailDepositRate * settings.deltaTime *
-                vkexp::trail::kernel::TrailFixedPointScale,
-            trailWidth,
-            trailCellsPerWorld,
-            trailEnabled ? 1U : 0U,
-            agentsPerWorld,
-            vkexp::packFitnessWeights(settings.fitness),
-            scenario.gpuParameters(settings),
-            settings.neuronMemoryEnabled ? 1U : 0U,
-            0U,
-            0U,
-            0U};
+    vkexp::SimulationStep resolved = settings;
+    resolved.trailEnabled = trailEnabled;
+    return vkexp::packStepParameters(
+        resolved, vkexp::StepParameterLayout{agentCount, trialsPerGenome, agentsPerWorld,
+                                             parityGridCellSize, gridWidth, gridCellsPerWorld,
+                                             trailWidth, trailCellsPerWorld});
 }
+
+
 
 // The agent_step pipeline wired up exactly like SimulationDriver does, with
 // host-visible buffers so a test can drive many steps without a staging copy
@@ -887,6 +850,11 @@ int run() {
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::Rotating);
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::RandomMovement);
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::ForageHome);
+    runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::ScentRelay);
+    // The one scenario with static geometry, so the one where the contact
+    // response exists twice -- in stepAgentCpu and in agent_step.comp. That is
+    // exactly the duplication parity is for.
+    runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::TwoDoors);
     runAgentInteractionTest(context, false);
     runAgentInteractionTest(context, true);
     // 540 steps at the default 1/60 s covers 9 simulated seconds, so the forage
@@ -896,6 +864,8 @@ int run() {
     runTrajectoryParity(context, vkexp::BeaconScenario::Rotating, 540);
     runTrajectoryParity(context, vkexp::BeaconScenario::RandomMovement, 540);
     runTrajectoryParity(context, vkexp::BeaconScenario::ForageHome, 540);
+    runTrajectoryParity(context, vkexp::BeaconScenario::ScentRelay, 540);
+    runTrajectoryParity(context, vkexp::BeaconScenario::TwoDoors, 540);
     runGenomeAddressingProbe(context);
     runTrailFieldProbe(context);
     runMultiAgentDeterminism(context);

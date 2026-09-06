@@ -141,8 +141,10 @@ add_library(vkneuro_domain STATIC
     src/evolution/GenomeArchive.cpp
     src/simulation/WorldSnapshot.cpp
     src/simulation/ExperimentSweep.cpp
+    src/simulation/StepParameters.cpp
     src/worlds/WorldScenario.cpp
     src/worlds/scenarios/StationaryScenario.cpp
+    src/worlds/scenarios/TwoDoorsScenario.cpp
     src/worlds/scenarios/AlternatingScenario.cpp
     src/worlds/scenarios/RotatingScenario.cpp
     src/worlds/scenarios/RandomMovementScenario.cpp
@@ -217,6 +219,15 @@ if(BUILD_TESTING)
         --save-champion ${CMAKE_CURRENT_BINARY_DIR}/headless_champion.vkng
         --save-world ${CMAKE_CURRENT_BINARY_DIR}/headless_world.vknw)
     set_tests_properties(vkneuro_headless_smoke PROPERTIES SKIP_RETURN_CODE 77)
+
+    # The scenario with static geometry, driven end to end. The parity test
+    # covers one agent against one wall; this covers a population evolving in a
+    # world that has walls at all, where a spawn hook and an obstacle loop run
+    # every step for every agent.
+    add_test(NAME vkneuro_headless_doors COMMAND vkneuro_headless
+        --scenario doors --generations 2 --steps 48 --population 32
+        --agents-per-world 8 --quiet)
+    set_tests_properties(vkneuro_headless_doors PROPERTIES SKIP_RETURN_CODE 77)
 
     add_test(NAME vkneuro_headless_resume COMMAND vkneuro_headless
         --scenario forage --generations 1 --steps 24 --population 32

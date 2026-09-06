@@ -22,6 +22,130 @@ const float RandomMotionSegmentSeconds = 3.0f;
 const float AlternatingDiagonalRatio = 0.62f;
 const float BeaconVisualRadius = 0.060f;
 
+// --- two doors -------------------------------------------------------------
+//
+// A wall across the arena with two gaps. One leads through to the resource; the
+// other opens into a closed pocket. From the home side the two are identical, so
+// the only way to know is to have gone -- which is what makes the world worth
+// building: a memory has something to hold, and a mark has something to say.
+//
+// The geometry is derived from the arena radius rather than stored, so it costs
+// no parameter slot and the CPU and the shader cannot disagree about where a
+// wall is. Every box is axis-aligned, which keeps the contact test to a clamp
+// and a subtraction in both languages.
+//
+// Layout, in fractions of the world radius:
+//
+//        resource at (0, +0.72)
+//     +-------------------------------+
+//     |          #####                |   <- pocket cap over the blocked door
+//     |          #   #                |   <- pocket sides
+//     |######  ##########  ###########|   <- the wall, at y = 0
+//     |      A            B           |
+//     |          home at (0, -0.72)   |
+//     +-------------------------------+
+
+const uint TwoDoorsBoxCount = 6u;
+const float TwoDoorsWallHalfThickness = 0.045f;
+const float TwoDoorsDoorOffset = 0.40f;
+const float TwoDoorsDoorHalfWidth = 0.07f;
+const float TwoDoorsPocketDepth = 0.30f;
+const float TwoDoorsArenaReach = 1.05f; // past the arena edge, so no gap at the rim
+const float TwoDoorsHomeY = -0.72f;
+const float TwoDoorsResourceY = 0.72f;
+
+// Which gap is a dead end this trial. Alternating by trial means a genome is
+// scored on both, so it cannot win by always turning the same way -- and the
+// trial index is not among the network's inputs, so it cannot be read off.
+VKEXP_KERNEL_FN uint twoDoorsBlockedDoor(uint trial) { return trial & 1u; }
+
+// Signed x of a door centre: door 0 left, door 1 right.
+VKEXP_KERNEL_FN float twoDoorsDoorCentre(uint door, float worldRadius) {
+    const float side = door == 0u ? -TwoDoorsDoorOffset : TwoDoorsDoorOffset;
+    return side * worldRadius;
+}
+
+VKEXP_KERNEL_FN vec2 twoDoorsHomePosition(float worldRadius) {
+    return vec2(0.0f, TwoDoorsHomeY * worldRadius);
+}
+
+VKEXP_KERNEL_FN vec2 twoDoorsResourcePosition(float worldRadius) {
+    return vec2(0.0f, TwoDoorsResourceY * worldRadius);
+}
+
+// Box `index` as a centre; `twoDoorsBoxHalfExtent` gives the matching extent.
+// Two calls rather than one because only vec2, float, uint and bool may cross a
+// shared-kernel boundary, and a box is four numbers.
+VKEXP_KERNEL_FN vec2 twoDoorsBoxCentre(uint index, float worldRadius, uint blockedDoor) {
+    const float leftDoor = twoDoorsDoorCentre(0u, worldRadius);
+    const float rightDoor = twoDoorsDoorCentre(1u, worldRadius);
+    const float doorHalf = TwoDoorsDoorHalfWidth * worldRadius;
+    const float reach = TwoDoorsArenaReach * worldRadius;
+    const float side = TwoDoorsWallHalfThickness * worldRadius;
+    const float blockedX = twoDoorsDoorCentre(blockedDoor, worldRadius);
+    if (index == 0u) { // wall, outer left
+        return vec2((-reach + (leftDoor - doorHalf)) * 0.5f, 0.0f);
+    }
+    if (index == 1u) { // wall, between the doors
+        return vec2(0.0f, 0.0f);
+    }
+    if (index == 2u) { // wall, outer right
+        return vec2(((rightDoor + doorHalf) + reach) * 0.5f, 0.0f);
+    }
+    if (index == 3u) { // pocket cap
+        return vec2(blockedX, TwoDoorsPocketDepth * worldRadius);
+    }
+    if (index == 4u) { // pocket side, left of the blocked door
+        return vec2(blockedX - doorHalf - side, TwoDoorsPocketDepth * worldRadius * 0.5f);
+    }
+    return vec2(blockedX + doorHalf + side, TwoDoorsPocketDepth * worldRadius * 0.5f);
+}
+
+// No blockedDoor here: which gap is the dead end moves the pocket, never its
+// size, and an unused parameter would only invite one to be passed wrongly.
+VKEXP_KERNEL_FN vec2 twoDoorsBoxHalfExtent(uint index, float worldRadius) {
+    const float leftDoor = twoDoorsDoorCentre(0u, worldRadius);
+    const float rightDoor = twoDoorsDoorCentre(1u, worldRadius);
+    const float doorHalf = TwoDoorsDoorHalfWidth * worldRadius;
+    const float reach = TwoDoorsArenaReach * worldRadius;
+    const float thickness = TwoDoorsWallHalfThickness * worldRadius;
+    if (index == 0u) {
+        return vec2(((leftDoor - doorHalf) + reach) * 0.5f, thickness);
+    }
+    if (index == 1u) {
+        // Centred on the origin by construction, so its half width is just the
+        // inner edge of the right-hand door.
+        return vec2(rightDoor - doorHalf, thickness);
+    }
+    if (index == 2u) {
+        return vec2((reach - (rightDoor + doorHalf)) * 0.5f, thickness);
+    }
+    if (index == 3u) {
+        return vec2(doorHalf + 2.0f * thickness, thickness);
+    }
+    // The sides run from the wall up to the cap, so the pocket is closed on
+    // three sides and the only way out is back through the door.
+    return vec2(thickness, TwoDoorsPocketDepth * worldRadius * 0.5f);
+}
+
+// Push-out for a circle against an axis-aligned box: zero when clear, otherwise
+// the shortest vector that separates them. Written as the shallowest overlap
+// axis rather than as a nearest-point normal so an agent that has sunk into a
+// wall leaves the way it came instead of being ejected through it.
+VKEXP_KERNEL_FN vec2 boxPushOut(vec2 position, float radius, vec2 centre, vec2 halfExtent) {
+    const float dx = position.x - centre.x;
+    const float dy = position.y - centre.y;
+    const float overlapX = halfExtent.x + radius - (dx < 0.0f ? -dx : dx);
+    const float overlapY = halfExtent.y + radius - (dy < 0.0f ? -dy : dy);
+    if (overlapX <= 0.0f || overlapY <= 0.0f) {
+        return vec2(0.0f, 0.0f);
+    }
+    if (overlapX < overlapY) {
+        return vec2(dx < 0.0f ? -overlapX : overlapX, 0.0f);
+    }
+    return vec2(0.0f, dy < 0.0f ? -overlapY : overlapY);
+}
+
 VKEXP_KERNEL_FN uint scenarioHash(uint value) {
     value ^= value >> 16u;
     value *= 0x7feb352du;

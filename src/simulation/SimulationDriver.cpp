@@ -1,6 +1,7 @@
 #include "vkexp/simulation/SimulationDriver.hpp"
 
 #include "vkexp/simulation/CpuSimulation.hpp"
+#include "vkexp/simulation/StepParameters.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
 #include <algorithm>
@@ -261,6 +262,17 @@ std::vector<AgentState> SimulationDriver::makeInitialAgents() const {
             agent.penalties.w = static_cast<float>(
                 logicalWorldForAgent(static_cast<std::uint32_t>(index),
                                      state_.worlds.agentsPerWorld, config_.trialsPerGenome));
+            // After the metrics, because a scenario that moves the spawn moves
+            // the distance the trial is scored against with it.
+            const ScenarioDefinition& scenario =
+                scenarioDefinition(state_.physics.beaconScenario);
+            if (scenario.spawn != nullptr) {
+                scenario.spawn(agent, initialSettings);
+                const float spawned = scenario.targetDistance != nullptr
+                                          ? scenario.targetDistance(agent, initialSettings)
+                                          : nearestBeaconDistance(agent, initialSettings);
+                agent.metrics = {spawned, spawned, 0.0F, 0.0F};
+            }
             result[index] = agent;
         }
     }
@@ -595,53 +607,16 @@ void SimulationDriver::updateGridDescriptors() {
 }
 
 GpuStepParameters SimulationDriver::stepParameters(const std::uint32_t generationStep) const {
-    const ScenarioDefinition& scenario = scenarioDefinition(state_.physics.beaconScenario);
     const SimulationStep settings =
         resolveStepSettings(state_.physics, generationStep, state_.controls.stepsPerGeneration);
-    return {
-        settings.deltaTime,
-        settings.worldRadius,
-        settings.thrust,
-        settings.turnAcceleration,
-        settings.linearDrag,
-        settings.angularDrag,
-        settings.sensorFieldOfView,
-        beaconArrivalRadius(settings),
-        settings.maximumSpeed,
-        settings.maximumAngularSpeed,
-        settings.lightSensorRange,
-        settings.lightExposure,
-        settings.collisionRestitution,
-        settings.contactStiffness,
-        gridCellSize(),
-        settings.wallCollisionPenalty,
-        state_.agents.agentCount,
-        neuro::packBrainLayout(scenario.brain),
-        config_.trialsPerGenome,
-        static_cast<std::uint32_t>(settings.worldShape),
-        gridWidth_,
-        gridCellsPerWorld_,
-        settings.agentCollisionsEnabled ? 1U : 0U,
-        settings.agentLightEnabled ? 1U : 0U,
-        static_cast<std::uint32_t>(settings.beaconScenario),
-        settings.beaconPhase,
-        settings.beaconPhaseChanged ? 1U : 0U,
-        scenario.beaconCount,
-        settings.trailCellSize,
-        trail::kernel::trailSurvival(
-            trail::kernel::trailDecayRateForHalfLife(settings.trailHalfLife), settings.deltaTime),
-        settings.trailDepositRate * settings.deltaTime * trail::kernel::TrailFixedPointScale,
-        settings.beaconTrailDepositRate * settings.deltaTime * trail::kernel::TrailFixedPointScale,
-        trailWidth_,
-        trailCellsPerWorld_,
-        settings.trailEnabled ? 1U : 0U,
-        state_.worlds.agentsPerWorld,
-        packFitnessWeights(settings.fitness),
-        scenario.gpuParameters(settings),
-        settings.neuronMemoryEnabled ? 1U : 0U,
-        0U,
-        0U,
-        0U};
+    return packStepParameters(settings, StepParameterLayout{state_.agents.agentCount,
+                                                            config_.trialsPerGenome,
+                                                            state_.worlds.agentsPerWorld,
+                                                            gridCellSize(),
+                                                            gridWidth_,
+                                                            gridCellsPerWorld_,
+                                                            trailWidth_,
+                                                            trailCellsPerWorld_});
 }
 
 std::uint32_t SimulationDriver::recordSteps(const VkCommandBuffer commands,
