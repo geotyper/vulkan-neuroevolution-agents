@@ -40,6 +40,12 @@ inline constexpr std::size_t beaconScenarioCount = 7;
 // Body radius in metres: a 4.4 cm disc, roughly an e-puck-class table robot.
 // Stored per agent in `pose.w`, so a scenario may vary it; this is the spawn
 // value and the scale every other length is chosen against.
+//
+// Also declared as ScenarioAgentBodyRadius in ScenarioKernel.inl, because
+// scenario geometry has to be sizeable by the agent and the shared kernel
+// cannot reach in here. It cannot be defined once and referenced: the kernel's
+// constants are plain `const float`, which GLSL needs and which C++ will not
+// accept as a constant expression. testTwoDoorsGeometry asserts the two agree.
 inline constexpr float agentBodyRadius = 0.022F;
 
 inline constexpr float agentBodyDiameter = agentBodyRadius * 2.0F;

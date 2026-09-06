@@ -1061,6 +1061,9 @@ void testNeuronTimeConstants() {
 void testTwoDoorsGeometry() {
     namespace kernel = vkexp::worlds::kernel;
     constexpr float radius = 1.84F;
+    // The top of the UI's maximum-speed slider, which is the fastest an agent
+    // can be configured to move.
+    constexpr float maximumConfigurableSpeed = 1.50F;
 
     const auto insideAnyBox = [&](const float x, const float y, const std::uint32_t blocked) {
         for (kernel::uint index = 0; index < kernel::TwoDoorsBoxCount; ++index) {
@@ -1109,7 +1112,7 @@ void testTwoDoorsGeometry() {
         const float blockedX = kernel::twoDoorsDoorCentre(blocked, radius);
         const float depth = kernel::TwoDoorsPocketDepth * radius;
         const float doorHalf = kernel::TwoDoorsDoorHalfWidth * radius;
-        const float side = doorHalf + kernel::TwoDoorsWallHalfThickness * radius;
+        const float side = doorHalf + kernel::TwoDoorsWallHalfThickness;
         // Swept, not sampled at a point: a cap shrunk to zero width still
         // contains its own centre, so a single probe there proves nothing about
         // whether the pocket is closed.
@@ -1143,22 +1146,37 @@ void testTwoDoorsGeometry() {
         check(openColumnClear, "The open door leads all the way through");
     }
 
-    // Every box has to be thicker than the furthest an agent travels in one
-    // step, or a fast agent steps clean over it between two contact tests and
-    // the wall is decorative. This is also what a degenerate box fails: a
-    // zero-width side still contains its own centre and passes any sampling.
-    const float stepReach = vkexp::SimulationStep{}.maximumSpeed * vkexp::units::fixedTimeStep;
+    // No barrier may be thin enough to be stepped clean over between two contact
+    // tests, or the wall is decoration. The condition is on the box as the
+    // contact test sees it -- inflated by the body radius on both sides -- and
+    // against the fastest the speed slider goes, not the default: a wall that
+    // holds only at default speed is a wall that fails when the experiment is
+    // turned up. An earlier version of this check compared the bare half extent
+    // against one step, which is far stricter than the physics and would have
+    // argued against a wall this thin for no reason.
+    const float fastestStep = maximumConfigurableSpeed * vkexp::units::fixedTimeStep;
     bool everyBoxStopsAnAgent = true;
-    for (const std::uint32_t blocked : {0U, 1U}) {
-        for (kernel::uint index = 0; index < kernel::TwoDoorsBoxCount; ++index) {
-            const kernel::vec2 halfExtent = kernel::twoDoorsBoxHalfExtent(index, radius);
-            (void)kernel::twoDoorsBoxCentre(index, radius, blocked);
-            if (halfExtent.x < stepReach || halfExtent.y < stepReach) {
-                everyBoxStopsAnAgent = false;
-            }
+    for (kernel::uint index = 0; index < kernel::TwoDoorsBoxCount; ++index) {
+        const kernel::vec2 halfExtent = kernel::twoDoorsBoxHalfExtent(index, radius);
+        const float acrossX = 2.0F * (halfExtent.x + vkexp::agentBodyRadius);
+        const float acrossY = 2.0F * (halfExtent.y + vkexp::agentBodyRadius);
+        if (acrossX <= fastestStep || acrossY <= fastestStep) {
+            everyBoxStopsAnAgent = false;
         }
     }
-    check(everyBoxStopsAnAgent, "No barrier is thin enough for an agent to step over in one step");
+    check(everyBoxStopsAnAgent, "No barrier can be stepped over between two contact tests");
+
+    // The body radius is written in the shared kernel and in AgentTypes.hpp and
+    // neither can reference the other, so this is what keeps them equal.
+    check(closeTo(kernel::ScenarioAgentBodyRadius, vkexp::agentBodyRadius),
+          "The kernel and the C++ side agree on the body radius");
+
+    // And the wall is sized by the agent rather than by the room, so it stays a
+    // divider instead of becoming masonry when the arena grows.
+    for (const float arena : {1.84F, 2.76F, 5.52F}) {
+        check(closeTo(kernel::twoDoorsBoxHalfExtent(1U, arena).y, vkexp::agentBodyRadius),
+              "Wall thickness does not scale with the arena");
+    }
 
     // Occlusion, stated as the world rather than as the slab test: standing at
     // home, the resource is hidden by the wall; standing in a doorway, it is

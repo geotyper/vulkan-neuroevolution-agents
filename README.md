@@ -159,7 +159,11 @@ but fitness does not. Progress is still banked against the geometric distance to
 the target, so the task stays learnable by shaping while being unsolvable by
 looking.
 
-**Geometry.** Six axis-aligned boxes, derived from the arena radius by
+**Geometry.** Six axis-aligned boxes. Thickness is set by the agent and not by
+the arena -- one body diameter, 4.4 cm -- because a wall is a wall whatever room
+it stands in; scaling it with the world radius made a 17 cm slab across a 3.7 m
+arena, nearly four body diameters of masonry that read as architecture rather
+than as a divider. Everything else is derived from the arena radius by
 `ScenarioKernel.inl` rather than stored, so they cost no parameter slot and the
 CPU and the shader cannot disagree about where a wall is. Contact reports
 through the same tactile channel the arena boundary uses: to the network a
@@ -167,7 +171,10 @@ barrier is a barrier, and no new input had to be found room for. The unit test
 sweeps the wall line for a seam between segments, sweeps the pocket boundary for
 a way out, and asserts that no barrier is thinner than the distance an agent
 covers in one step -- a wall a fast agent steps over between two contact tests
-is decoration. Occlusion is asserted as the world rather than as the slab test:
+is decoration -- stated against the top of the speed slider and against the box
+as the contact test sees it, inflated by the body radius, since a wall that
+holds only at default speed is a wall that fails when the experiment is turned
+up. Occlusion is asserted as the world rather than as the slab test:
 from home the resource is hidden, from the open doorway it is not, and inside
 the dead end it is hidden again.
 

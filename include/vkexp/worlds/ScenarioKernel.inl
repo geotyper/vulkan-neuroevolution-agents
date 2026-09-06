@@ -22,6 +22,13 @@ const float RandomMotionSegmentSeconds = 3.0f;
 const float AlternatingDiagonalRatio = 0.62f;
 const float BeaconVisualRadius = 0.060f;
 
+// Body radius in metres, the scale every other length is chosen against. Here as
+// well as in AgentTypes.hpp because geometry that should be sized by the agent
+// has to be expressible in the shared kernel, and a `const float` -- which GLSL
+// needs -- is not a constant expression to C++, so neither file can reference
+// the other. testTwoDoorsGeometry asserts the two stay equal.
+const float ScenarioAgentBodyRadius = 0.022f;
+
 // --- two doors -------------------------------------------------------------
 //
 // A wall across the arena with two gaps. One leads through to the resource; the
@@ -46,7 +53,12 @@ const float BeaconVisualRadius = 0.060f;
 //     +-------------------------------+
 
 const uint TwoDoorsBoxCount = 6u;
-const float TwoDoorsWallHalfThickness = 0.045f;
+// Thickness is in metres and set by the agent, not by the arena: a wall is a
+// wall whatever room it stands in, and scaling it with the world radius made a
+// 17 cm slab across a 3.7 m arena -- nearly four body diameters of masonry, which
+// reads as architecture rather than as a divider. One body diameter is enough to
+// be seen and far more than enough to be felt.
+const float TwoDoorsWallHalfThickness = ScenarioAgentBodyRadius;
 const float TwoDoorsDoorOffset = 0.40f;
 const float TwoDoorsDoorHalfWidth = 0.07f;
 const float TwoDoorsPocketDepth = 0.30f;
@@ -81,7 +93,7 @@ VKEXP_KERNEL_FN vec2 twoDoorsBoxCentre(uint index, float worldRadius, uint block
     const float rightDoor = twoDoorsDoorCentre(1u, worldRadius);
     const float doorHalf = TwoDoorsDoorHalfWidth * worldRadius;
     const float reach = TwoDoorsArenaReach * worldRadius;
-    const float side = TwoDoorsWallHalfThickness * worldRadius;
+    const float side = TwoDoorsWallHalfThickness;
     const float blockedX = twoDoorsDoorCentre(blockedDoor, worldRadius);
     if (index == 0u) { // wall, outer left
         return vec2((-reach + (leftDoor - doorHalf)) * 0.5f, 0.0f);
@@ -108,7 +120,7 @@ VKEXP_KERNEL_FN vec2 twoDoorsBoxHalfExtent(uint index, float worldRadius) {
     const float rightDoor = twoDoorsDoorCentre(1u, worldRadius);
     const float doorHalf = TwoDoorsDoorHalfWidth * worldRadius;
     const float reach = TwoDoorsArenaReach * worldRadius;
-    const float thickness = TwoDoorsWallHalfThickness * worldRadius;
+    const float thickness = TwoDoorsWallHalfThickness;
     if (index == 0u) {
         return vec2(((leftDoor - doorHalf) + reach) * 0.5f, thickness);
     }
