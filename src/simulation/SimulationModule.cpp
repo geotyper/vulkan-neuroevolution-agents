@@ -1,9 +1,12 @@
 #include "vkexp/simulation/SimulationModule.hpp"
 
 #include "vkexp/core/VulkanContext.hpp"
+#include "vkexp/evolution/GenomeArchive.hpp"
 #include "vkexp/profiling/Profiler.hpp"
 
 #include <exception>
+#include <string>
+#include <vector>
 
 namespace vkexp {
 
@@ -43,6 +46,49 @@ void SimulationModule::onUpdate(AppContext& context, const FrameInfo&) {
         } catch (const std::exception& error) {
             state_.controls.snapshotStatus = error.what();
         }
+        return;
+    }
+    if (state_.controls.loadGenomesRequested) {
+        state_.controls.loadGenomesRequested = false;
+        context.vulkan.waitIdle();
+        try {
+            const GenomeArchive archive = loadGenomeArchive(state_.controls.genomePath);
+            // An archive is usually one champion or a handful of elites, while a
+            // run has a population size fixed when its buffers were made. The
+            // archive is repeated to fill it, so every agent runs the loaded
+            // weights -- which is what makes a champion watchable rather than
+            // one agent among five hundred strangers. The status line says the
+            // repetition happened instead of leaving it to be inferred from the
+            // picture.
+            const std::size_t populationSize = driver_.evolution().population().size();
+            std::vector<Genome> filled(populationSize);
+            for (std::size_t index = 0; index < populationSize; ++index) {
+                filled[index] = archive.genomes[index % archive.genomes.size()];
+            }
+            driver_.loadPopulation(filled, archive.metadata.generation);
+            state_.controls.snapshotStatus =
+                "Loaded " + std::to_string(archive.genomes.size()) + " genome(s) from " +
+                state_.controls.genomePath + ", repeated across " + std::to_string(populationSize);
+        } catch (const std::exception& error) {
+            state_.controls.snapshotStatus = error.what();
+        }
+        finishPending_ = false;
+        return;
+    }
+    if (state_.controls.sweepStartRequested || state_.controls.sweepStopRequested) {
+        const bool starting = state_.controls.sweepStartRequested;
+        state_.controls.sweepStartRequested = false;
+        state_.controls.sweepStopRequested = false;
+        // Starting restarts evolution, so it needs the same idle device a reset
+        // does; stopping only clears a flag, but goes through the same branch to
+        // keep one place where a sweep changes state.
+        context.vulkan.waitIdle();
+        if (starting) {
+            driver_.beginSweep();
+        } else {
+            driver_.endSweep();
+        }
+        finishPending_ = false;
         return;
     }
     if (state_.controls.resetRequested) {

@@ -391,7 +391,20 @@ GenerationSummary SimulationDriver::finishGeneration() {
     // quantity at every sharing level; what selects is the shared vector.
     const std::vector<float> selectionFitness = shareFitnessWithinGroups(
         fitness, state_.worlds.agentsPerWorld, state_.physics.fitness.groupSharing);
-    GenerationSummary summary = evolution_.evolve(selectionFitness);
+    // Replay scores and reports a generation exactly as training does -- that is
+    // how loaded weights get judged -- and then selects nothing. The population
+    // is left untouched, so resetGeneration below respawns the same genomes and
+    // the generation counter does not move. Since the beacon motion seed is the
+    // generation number, the next run is the same run again rather than a
+    // similar one, which is what makes a behaviour watchable more than once.
+    GenerationSummary summary{};
+    if (state_.controls.replay) {
+        summary.generation = evolution_.generation();
+        summary.championIndex = static_cast<std::size_t>(
+            std::distance(fitness.begin(), std::max_element(fitness.begin(), fitness.end())));
+    } else {
+        summary = evolution_.evolve(selectionFitness);
+    }
     summary.bestFitness = *std::max_element(fitness.begin(), fitness.end());
     summary.meanFitness = std::accumulate(fitness.begin(), fitness.end(), 0.0F) /
                           static_cast<float>(fitness.size());
@@ -418,9 +431,37 @@ GenerationSummary SimulationDriver::finishGeneration() {
     appendHistory(state_.history.medianFitness, summary.medianFitness);
     appendHistory(state_.history.meanFitness, summary.meanFitness);
     appendHistory(state_.history.arrivalRatio, state_.statistics.arrivalRatio);
+
+    // A stage boundary is a generation boundary, where the population was going
+    // to be respawned anyway, so a sweep costs nothing but the restart it asks
+    // for. Replay never advances a sweep: there is nothing to compare between
+    // settings when no setting is selecting anything.
+    if (state_.sweep.running && !state_.controls.replay) {
+        if (recordSweepGeneration(state_.sweep, summary.bestFitness, summary.medianFitness,
+                                  state_.statistics.arrivalRatio)) {
+            state_.physics.fitness.groupSharing = sweepValue(state_.sweep);
+            // restart() and not resetGeneration(): a stage has to begin from the
+            // seeded initial population, or it would measure its setting applied
+            // to whatever the previous setting had already evolved.
+            restart();
+            return summary;
+        }
+    }
     resetGeneration();
     return summary;
 }
+
+void SimulationDriver::beginSweep() {
+    startSweep(state_.sweep);
+    if (!state_.sweep.running) {
+        return;
+    }
+    state_.controls.replay = false;
+    state_.physics.fitness.groupSharing = sweepValue(state_.sweep);
+    restart();
+}
+
+void SimulationDriver::endSweep() { stopSweep(state_.sweep); }
 
 float SimulationDriver::gridCellSize() const {
     return gridCellSizeForWorld(config_.gridCellSize, state_.physics.worldRadius);

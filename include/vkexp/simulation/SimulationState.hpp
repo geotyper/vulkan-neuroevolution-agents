@@ -2,6 +2,7 @@
 
 #include "vkexp/evolution/GeneticAlgorithm.hpp"
 #include "vkexp/simulation/AgentTypes.hpp"
+#include "vkexp/simulation/ExperimentSweep.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -26,6 +27,22 @@ struct SimulationControls {
     std::string snapshotStatus;
     bool saveRequested{};
     bool loadRequested{};
+
+    // A genome archive carries weights and nothing else, which is exactly what
+    // replaying a champion needs: the world is whatever is set up here, and the
+    // brain is the one that was trained elsewhere.
+    std::string genomePath{"champion.vkng"};
+    bool loadGenomesRequested{};
+
+    // Watching rather than training. The generation is still scored and
+    // reported -- that is how loaded weights get judged -- but nothing is
+    // selected or mutated, so the same population respawns and the run repeats
+    // instead of drifting away from the weights that were loaded.
+    bool replay{};
+
+    // Raised by the UI and acted on between frames, like the flags above.
+    bool sweepStartRequested{};
+    bool sweepStopRequested{};
 };
 
 struct SimulationStatistics {
@@ -103,6 +120,7 @@ struct SimulationState {
     EvolutionHistory history;
     SimulationWorlds worlds;
     SimulationStep physics;
+    SweepState sweep;
     SimulationDisplay display;
     AgentBufferView agents;
     TrailBufferView trail;

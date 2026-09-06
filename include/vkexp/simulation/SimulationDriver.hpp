@@ -60,6 +60,13 @@ public:
     // Replaces the population, e.g. when resuming from a genome archive.
     void loadPopulation(std::span<const Genome> genomes, std::uint64_t generation);
 
+    // Runs the plan in SimulationState::sweep: one clean run per swept value,
+    // restarting evolution between stages so a stage is never handed the
+    // population the previous setting produced. The plan and the results are
+    // published state, so the UI reads them without reaching into the driver.
+    void beginSweep();
+    void endSweep();
+
     // Freezes and restores a whole experiment rather than just its weights.
     //
     // Both require the device to be idle: snapshot() reads the agent buffer back

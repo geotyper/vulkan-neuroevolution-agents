@@ -6,6 +6,7 @@
 #include "vkexp/profiling/CpuProfiler.hpp"
 #include "vkexp/profiling/ProfilerTypes.hpp"
 #include "vkexp/simulation/CpuSimulation.hpp"
+#include "vkexp/simulation/ExperimentSweep.hpp"
 #include "vkexp/simulation/Sensors.hpp"
 #include "vkexp/simulation/TrailKernel.hpp"
 #include "vkexp/simulation/Units.hpp"
@@ -947,6 +948,67 @@ void testResolvedStepSettings() {
           "Resolved motion time follows the step index");
 }
 
+void testExperimentSweep() {
+    vkexp::SweepState sweep;
+    sweep.values = {0.0F, 0.5F, 1.0F};
+    sweep.generationsPerStage = 3;
+    vkexp::startSweep(sweep);
+    check(sweep.running && sweep.stages.size() == 1, "A sweep arms one stage at a time");
+    check(closeTo(vkexp::sweepValue(sweep), 0.0F), "A sweep starts at its first value");
+
+    // The boundary is the whole reason this is not a shell loop, so it is what
+    // the test pins down: the generation that fills a stage belongs to that
+    // stage, and the advance is reported exactly once, on that generation.
+    check(!vkexp::recordSweepGeneration(sweep, 1.0F, 0.5F, 0.1F), "No advance mid-stage");
+    check(!vkexp::recordSweepGeneration(sweep, 2.0F, 0.6F, 0.2F), "No advance mid-stage");
+    check(vkexp::recordSweepGeneration(sweep, 3.0F, 0.7F, 0.3F), "The filling generation advances");
+    check(sweep.stages.front().medianFitness.size() == 3,
+          "The filling generation is recorded in the stage it filled");
+    check(sweep.stages.size() == 2 && closeTo(vkexp::sweepValue(sweep), 0.5F),
+          "The next stage is armed at the next value");
+    check(sweep.generationsInStage == 0, "A new stage starts empty");
+    check(closeTo(sweep.stages.front().arrivalRatio.back(), 0.3F), "Stage curves keep their order");
+
+    for (int generation = 0; generation < 3; ++generation) {
+        (void)vkexp::recordSweepGeneration(sweep, 1.0F, 1.0F, 0.5F);
+    }
+    check(sweep.running && sweep.stages.size() == 3, "The middle stage hands over to the last");
+
+    // The last stage has nothing to hand over to, so it must stop rather than
+    // report an advance the caller would act on by restarting a fourth run.
+    check(!vkexp::recordSweepGeneration(sweep, 1.0F, 1.0F, 0.5F), "No advance mid-final-stage");
+    (void)vkexp::recordSweepGeneration(sweep, 1.0F, 1.0F, 0.5F);
+    check(!vkexp::recordSweepGeneration(sweep, 4.0F, 2.0F, 0.9F), "The final stage does not advance");
+    check(!sweep.running && sweep.stages.size() == 3, "A finished sweep stops with every stage kept");
+    check(closeTo(sweep.stages.back().bestFitness.back(), 4.0F),
+          "The last generation of the last stage is kept");
+    check(!vkexp::recordSweepGeneration(sweep, 9.0F, 9.0F, 9.0F),
+          "A stopped sweep records nothing further");
+    check(sweep.stages.back().bestFitness.size() == 3, "A stopped sweep grows no stage");
+
+    // Results have to outlive the run that made them, or stopping early throws
+    // away the comparison the sweep was started for.
+    vkexp::startSweep(sweep);
+    (void)vkexp::recordSweepGeneration(sweep, 5.0F, 5.0F, 0.5F);
+    vkexp::stopSweep(sweep);
+    check(!sweep.running && sweep.stages.size() == 1 &&
+              closeTo(sweep.stages.front().bestFitness.front(), 5.0F),
+          "Stopping a sweep keeps what it measured");
+
+    // A plan that cannot run must not report itself as running, so no caller has
+    // to guard against a sweep with no stage in flight.
+    vkexp::SweepState empty;
+    empty.values.clear();
+    vkexp::startSweep(empty);
+    check(!empty.running && empty.stages.empty(), "A sweep with no values does not start");
+    vkexp::SweepState instant;
+    instant.generationsPerStage = 0;
+    vkexp::startSweep(instant);
+    check(!instant.running, "A sweep with no generations per stage does not start");
+    check(!vkexp::recordSweepGeneration(instant, 1.0F, 1.0F, 1.0F),
+          "A sweep that never started records nothing");
+}
+
 void testGeneticAlgorithm() {
     const vkexp::EvolutionSettings settings{8, 2, 3, 0.5F, 0.1F, 0.2F, 42U};
     vkexp::GeneticAlgorithm evolution{settings};
@@ -976,6 +1038,7 @@ int main() {
     testForageCycleAndMemory();
     testWallCollisionPenalty();
     testGeneticAlgorithm();
+    testExperimentSweep();
     testScenarioRegistryContract();
     testFitnessWeightsAreParameters();
     testSharedScenarioKernel();

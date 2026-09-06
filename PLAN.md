@@ -62,7 +62,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 
 ### 2. Diagnostics and replay
 
-- [ ] champion-only replay with fixed seeds;
+- [x] champion-only replay with fixed seeds;
 - [x] best/median/mean fitness and arrival-history plots;
 - [ ] generation timing;
 - [ ] inspect one agent's receptor values, activations, and motor outputs;
@@ -192,6 +192,24 @@ genomes inside a world. Which trade wins is measured, not asserted, so the knob
 spans both ends continuously and the reported numbers stay individual at every
 setting so runs remain comparable.
 
+A sweep is how the measurement is taken without leaving the window: stages that
+differ in one value and in nothing else, each starting from the seeded initial
+population rather than from the previous stage's result. It lives in the driver
+and not in the UI module, because the comparison is an experiment and rule 3a
+puts experiments where a window is not required to reach them; the stage
+arithmetic is plain data and free functions, so the boundary is pinned by a unit
+test rather than by watching curves.
+
+## Replay
+
+Watching is a mode of the same driver, not a second one: a replayed generation
+is simulated, scored and reported through the ordinary path, and only selection
+is skipped. That keeps a replay honest -- the fitness under the champion is
+computed the way training computed it -- and it keeps the run repeatable,
+because the generation counter that seeds beacon motion does not advance. The
+smoke test asserts the repetition byte for byte, since a leak of evolution into
+replay would show up as a different ending rather than as a worse number.
+
 ## Persistence
 
 Two formats, deliberately separate. A genome archive (`.vkng`) carries weights
@@ -204,8 +222,15 @@ added tunable a build failure rather than a silently dropped field.
 
 ## Immediate next step
 
-Add champion replay and receptor visualization before walls. Those tools make
-later failures attributable to perception, control, fitness, or evolution
-instead of only showing that population fitness stopped improving. The batch
-runner and genome archives are in place, so a champion can now be evolved
-headlessly and replayed in the window.
+Run the sharing sweep with a non-zero signal cost, then add receptor
+visualization. Replay is in place, so a champion evolved headlessly can be
+watched in the window; what is still missing is seeing what it perceives, which
+is what makes a later failure attributable to perception, control, fitness or
+evolution instead of only showing that population fitness stopped improving.
+
+Only after that is the brain worth changing. The candidate is CTRNN: give every
+hidden neuron its own state and an evolvable time constant, so fast neurons
+handle reflexes and slow ones hold a task across seconds, and memory stops
+costing two of the eight output slots. It grows the genome by `hiddenCount` and
+`AgentState` by one float per hidden neuron, and it invalidates both file
+formats -- which is the reason to measure the fitness question first.

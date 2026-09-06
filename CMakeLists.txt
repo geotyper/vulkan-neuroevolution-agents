@@ -140,6 +140,7 @@ add_library(vkneuro_domain STATIC
     src/evolution/GeneticAlgorithm.cpp
     src/evolution/GenomeArchive.cpp
     src/simulation/WorldSnapshot.cpp
+    src/simulation/ExperimentSweep.cpp
     src/worlds/WorldScenario.cpp
     src/worlds/scenarios/StationaryScenario.cpp
     src/worlds/scenarios/AlternatingScenario.cpp
@@ -244,6 +245,16 @@ if(BUILD_TESTING)
     vkexp_enable_warnings(vkexp_compute_smoke)
     add_test(NAME vkexp_compute_smoke COMMAND vkexp_compute_smoke)
     set_tests_properties(vkexp_compute_smoke PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(vkneuro_replay_smoke tests/replay_smoke.cpp)
+    add_dependencies(vkneuro_replay_smoke vkexp_shaders)
+    target_link_libraries(vkneuro_replay_smoke PRIVATE vkneuro_simulation)
+    target_compile_definitions(vkneuro_replay_smoke PRIVATE
+        VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
+    )
+    vkexp_enable_warnings(vkneuro_replay_smoke)
+    add_test(NAME vkneuro_replay_smoke COMMAND vkneuro_replay_smoke)
+    set_tests_properties(vkneuro_replay_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(vkneuro_reconfiguration_smoke tests/reconfiguration_smoke.cpp)
     add_dependencies(vkneuro_reconfiguration_smoke vkexp_shaders)

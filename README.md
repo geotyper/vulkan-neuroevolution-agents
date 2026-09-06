@@ -123,6 +123,64 @@ individual, because a shared run and an unshared one could not otherwise be
 compared on their headline figures: sharing compresses spread by construction.
 Objective completion is untouched either way and is the cleanest comparison.
 
+### Sweeping it from the window
+
+Whether sharing helps is an empirical question, and one run cannot answer it.
+The **Sharing sweep** panel runs the same experiment once per value -- up to six
+stages -- and restarts evolution between them, so a stage measures its own
+setting rather than that setting applied to whatever the previous one had
+already evolved. Every stage keeps its own curves, and they are plotted on one
+shared axis, because separately autoscaled plots would make a flat run and a
+climbing one look alike.
+
+Objective completion is plotted first and on a fixed 0..1 axis: it is the one
+number sharing does not move arithmetically, so it is the honest comparison
+between settings. The last stage is not restarted when it ends -- the run simply
+carries on at that setting with every stage kept for reading.
+
+The same comparison from the batch runner, which writes CSV instead of curves:
+
+```sh
+for share in 0.0 0.5 1.0; do
+  vkneuro_headless --scenario scent --generations 60 --seed 5 \
+                   --fitness-sharing "$share" --csv "runs/scent-share-$share.csv"
+done
+```
+
+Worth running with a non-zero `--signal-cost`. While emitting is free, colour
+stays a free drift even under shared fitness: what pays back has to cost
+something first.
+
+## Replay
+
+Watching trained weights is a different job from training them, and the
+difference is one flag. **Replay only (no evolution)** scores and reports every
+generation exactly as a training run does -- that is how loaded weights get
+judged -- and then selects and mutates nothing. The population is left alone, so
+the same genomes respawn; the beacon motion seed is the generation number, which
+does not advance either, so the next generation is the same run again rather
+than a similar one. That repeatability is asserted by `vkneuro_replay_smoke`,
+which compares two replayed generations byte for byte.
+
+**Load genomes** takes a `.vkng` archive, which carries weights and nothing
+else -- exactly what replaying a champion needs, since the world is whatever is
+set up in the window. An archive normally holds one champion or a handful of
+elites while a run has a population size fixed when its buffers were made, so
+the archive is repeated across the population and every agent on screen runs the
+loaded brain. The status line says the repetition happened rather than leaving
+it to be inferred from the picture.
+
+To watch a headless champion:
+
+```sh
+vkneuro_headless --scenario scent --generations 200 --save-champion runs/scent.vkng
+# then in the window: Load genomes -> runs/scent.vkng, tick Replay only
+```
+
+A world snapshot (`.vknw`) is the other way in, and carries the arena and every
+setting with it; a genome archive keeps the window's current world and changes
+only the brain.
+
 The foraging scenario does not grant passive tracking fitness. Reaching the
 resource switches an explicit task input from `seek resource` to `seek home`
 and fills a cargo-level input. Cargo decays while being carried, so prompt home

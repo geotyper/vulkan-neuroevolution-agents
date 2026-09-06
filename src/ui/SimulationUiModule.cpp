@@ -12,7 +12,9 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace vkexp {
@@ -29,6 +31,30 @@ void plotHistory(const char* label, const std::vector<float>& values, const floa
                      minimum, maximum, ImVec2(-1.0F, 62.0F));
     ImGui::TextDisabled("%s", label);
     ImGui::PopID();
+}
+
+// Sweep stages are only a comparison if they are drawn against one axis.
+// Separately autoscaled plots make a flat run and a climbing one look alike,
+// and ImGui draws one series per plot, so the shared range is what turns a
+// stack of plots into an answer.
+std::pair<float, float> stackedRange(const std::vector<SweepStage>& stages,
+                                     std::vector<float> SweepStage::*series) {
+    float minimum = FLT_MAX;
+    float maximum = -FLT_MAX;
+    for (const SweepStage& stage : stages) {
+        for (const float value : stage.*series) {
+            minimum = std::min(minimum, value);
+            maximum = std::max(maximum, value);
+        }
+    }
+    if (minimum > maximum) {
+        return {0.0F, 1.0F};
+    }
+    // A stage that never moved would otherwise be drawn as a full-height line.
+    if (maximum - minimum < 1.0e-6F) {
+        return {minimum - 0.5F, maximum + 0.5F};
+    }
+    return {minimum, maximum};
 }
 
 } // namespace
@@ -322,6 +348,33 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::SetItemTooltip("Resumes on the step it was saved on. Needs the same population size "
                           "and trial count as this run.");
     ImGui::EndDisabled();
+
+    // Watching trained weights is a different job from training them, and the
+    // difference is one flag: everything is scored and reported as usual, and
+    // nothing is selected. It sits beside the loaders because that is the order
+    // it is used in -- load a champion, then watch it.
+    ImGui::SeparatorText("Replay");
+    ImGui::BeginDisabled(state_.sweep.running);
+    ImGui::Checkbox("Replay only (no evolution)", &state_.controls.replay);
+    ImGui::SetItemTooltip("Scores and reports every generation as usual but selects and mutates "
+                          "nothing, so the same population respawns and the run repeats instead "
+                          "of evolving away from the weights you loaded.");
+    std::array<char, 256> genomePath{};
+    const std::size_t genomeLength =
+        std::min(state_.controls.genomePath.size(), genomePath.size() - 1);
+    std::copy_n(state_.controls.genomePath.begin(), genomeLength, genomePath.begin());
+    if (ImGui::InputText("Genome file", genomePath.data(), genomePath.size())) {
+        state_.controls.genomePath = genomePath.data();
+    }
+    ImGui::BeginDisabled(state_.controls.genomePath.empty());
+    if (ImGui::Button("Load genomes")) {
+        state_.controls.loadGenomesRequested = true;
+    }
+    ImGui::SetItemTooltip("Weights only, from a .vkng archive. A champion or a few elites are "
+                          "repeated across the whole population, so every agent you see runs the "
+                          "loaded brain. The world stays as it is set up here.");
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
     if (!state_.controls.snapshotStatus.empty()) {
         ImGui::TextWrapped("%s", state_.controls.snapshotStatus.c_str());
     }
@@ -382,6 +435,82 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Text("Crossover: %.1f%%", state_.evolution.crossoverProbability * 100.0F);
     ImGui::Text("Mutation: %.1f%%  strength %.3f", state_.evolution.mutationProbability * 100.0F,
                 state_.evolution.mutationStrength);
+
+    // Whether group fitness sharing helps is an empirical question, and one run
+    // cannot answer it. A sweep runs the same experiment once per setting from
+    // the same seed, restarting evolution between stages, so the curves below
+    // differ in the swept value and in nothing else.
+    ImGui::SeparatorText("Sharing sweep");
+    ImGui::BeginDisabled(state_.sweep.running);
+    for (std::size_t index = 0; index < state_.sweep.values.size(); ++index) {
+        ImGui::PushID(static_cast<int>(index));
+        ImGui::SetNextItemWidth(72.0F);
+        ImGui::SliderFloat("##value", &state_.sweep.values[index], 0.0F, 1.0F, "%.2f");
+        ImGui::PopID();
+        if (index + 1 < state_.sweep.values.size()) {
+            ImGui::SameLine();
+        }
+    }
+    ImGui::BeginDisabled(state_.sweep.values.size() >= maximumSweepStages);
+    if (ImGui::Button("Add stage")) {
+        state_.sweep.values.push_back(state_.sweep.values.empty() ? 0.0F
+                                                                  : state_.sweep.values.back());
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(state_.sweep.values.empty());
+    if (ImGui::Button("Remove stage")) {
+        state_.sweep.values.pop_back();
+    }
+    ImGui::EndDisabled();
+    int generationsPerStage = static_cast<int>(state_.sweep.generationsPerStage);
+    if (ImGui::SliderInt("Generations / stage", &generationsPerStage, 5, 1000, "%d",
+                         ImGuiSliderFlags_Logarithmic)) {
+        state_.sweep.generationsPerStage = static_cast<std::uint32_t>(generationsPerStage);
+    }
+    ImGui::EndDisabled();
+
+    if (state_.sweep.running) {
+        if (ImGui::Button("Stop sweep")) {
+            state_.controls.sweepStopRequested = true;
+        }
+        ImGui::SameLine();
+        ImGui::Text("Stage %zu/%zu at %.2f, generation %u/%u", state_.sweep.stage + 1,
+                    state_.sweep.values.size(), static_cast<double>(sweepValue(state_.sweep)),
+                    state_.sweep.generationsInStage, state_.sweep.generationsPerStage);
+    } else {
+        ImGui::BeginDisabled(state_.sweep.values.empty() || state_.controls.replay);
+        if (ImGui::Button("Start sweep")) {
+            state_.controls.sweepStartRequested = true;
+        }
+        ImGui::SetItemTooltip("Restarts evolution at the first value and moves on when a stage "
+                              "fills up. Overwrites any previous sweep result.");
+        ImGui::EndDisabled();
+        if (state_.controls.replay) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("replay is on");
+        }
+    }
+
+    if (!state_.sweep.stages.empty()) {
+        // Objective completion first, and on a fixed 0..1 axis: it is the one
+        // number sharing does not touch arithmetically, so it is the honest
+        // comparison between settings. Fitness follows on a shared axis.
+        const std::pair<float, float> fitnessRange =
+            stackedRange(state_.sweep.stages, &SweepStage::medianFitness);
+        for (const SweepStage& stage : state_.sweep.stages) {
+            char label[64];
+            std::snprintf(label, sizeof(label), "Objective at sharing %.2f",
+                          static_cast<double>(stage.groupSharing));
+            plotHistory(label, stage.arrivalRatio, 0.0F, 1.0F);
+        }
+        for (const SweepStage& stage : state_.sweep.stages) {
+            char label[64];
+            std::snprintf(label, sizeof(label), "Median fitness at sharing %.2f",
+                          static_cast<double>(stage.groupSharing));
+            plotHistory(label, stage.medianFitness, fitnessRange.first, fitnessRange.second);
+        }
+    }
     ImGui::End();
 
     ImGui::SetNextWindowPos(ImVec2(360.0F, 16.0F), ImGuiCond_FirstUseEver);
