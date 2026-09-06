@@ -37,7 +37,10 @@ struct WorldSnapshot {
     std::uint32_t seed{};
 };
 
-inline constexpr std::uint32_t worldSnapshotVersion = 1;
+// 2 added the group fitness sharing weight. A version 1 file describes a run
+// that had no such setting, which is not the same as one that had it at zero --
+// so it is rejected rather than defaulted.
+inline constexpr std::uint32_t worldSnapshotVersion = 2;
 
 // Versioned and little-endian, like the genome archive, and just as strict: a
 // file from another brain topology, another agent layout or another scenario

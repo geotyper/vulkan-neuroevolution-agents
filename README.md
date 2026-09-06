@@ -96,6 +96,33 @@ agents do leave behind is their own trail, coloured by their own signal output,
 which the antennae can read. Nothing in the fitness function mentions colour, so
 whether a shared meaning emerges is the experiment rather than the design.
 
+## Group fitness sharing
+
+Selection is individual by default: a genome is scored on what it did, so a
+signal that only helps a neighbour is pure cost to its sender. That is a fitness
+property, not a network one, and no architecture fixes it -- which is why
+`--fitness-sharing` (and the matching slider) exists as a comparable option
+rather than a new default.
+
+The setting blends each genome's score toward the mean of the genomes sharing
+its logical world:
+
+```
+f' = (1 - s) * f + s * mean(f over the world)
+```
+
+At `s = 0` nothing changes; the input is returned unchanged, so the option off
+is the old behaviour rather than a reimplementation of it. At `s = 1` a whole
+world is scored together, selection acts on groups, and helping a neighbour pays
+its sender back. Sharing only redistributes fitness inside a world and never
+changes a world's total, so selection pressure between worlds survives at every
+setting.
+
+Only selection sees the shared numbers. Reported and plotted fitness stays
+individual, because a shared run and an unshared one could not otherwise be
+compared on their headline figures: sharing compresses spread by construction.
+Objective completion is untouched either way and is the cleanest comparison.
+
 The foraging scenario does not grant passive tracking fitness. Reaching the
 resource switches an explicit task input from `seek resource` to `seek home`
 and fills a cargo-level input. Cargo decays while being carried, so prompt home
@@ -322,8 +349,8 @@ parameter sweeps and ablation comparisons possible:
 ```
 
 Fitness shaping coefficients are flags too (`--objective-bonus`, `--motor-cost`,
-`--tracking-reward`, `--signal-cost`, `--energy-drain`), so sweeping them needs
-no rebuild:
+`--tracking-reward`, `--signal-cost`, `--energy-drain`, `--fitness-sharing`), so
+sweeping them needs no rebuild:
 
 ```bash
 for reward in 0.0 0.25 0.75; do

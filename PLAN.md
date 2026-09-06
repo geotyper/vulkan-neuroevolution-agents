@@ -182,6 +182,16 @@ Shared math belongs in `include/vkexp/worlds/ScenarioKernel.inl`, which both
 languages compile. Nothing else needs editing: the simulation, the scoring, the
 batch runner's `--scenario` list and the UI controls all read the definition.
 
+## Selection
+
+Fitness sharing is an option and not a default, because the question it answers
+is empirical. Individual selection makes a signal that only helps a neighbour a
+net cost to its sender, so no network architecture can produce a code under it;
+sharing removes that obstacle but also removes the pressure that distinguishes
+genomes inside a world. Which trade wins is measured, not asserted, so the knob
+spans both ends continuously and the reported numbers stay individual at every
+setting so runs remain comparable.
+
 ## Persistence
 
 Two formats, deliberately separate. A genome archive (`.vkng`) carries weights

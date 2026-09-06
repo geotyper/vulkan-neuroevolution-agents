@@ -49,6 +49,26 @@ std::size_t GeneticAlgorithm::tournament(const std::span<const float> fitness) {
     return best;
 }
 
+std::vector<float> shareFitnessWithinGroups(const std::span<const float> fitness,
+                                            const std::size_t groupSize, const float share) {
+    const float blend = std::clamp(share, 0.0F, 1.0F);
+    std::vector<float> shared(fitness.begin(), fitness.end());
+    if (blend <= 0.0F || groupSize == 0) {
+        return shared;
+    }
+    for (std::size_t first = 0; first < fitness.size(); first += groupSize) {
+        const std::size_t last = std::min(first + groupSize, fitness.size());
+        const float sum = std::accumulate(fitness.begin() + static_cast<std::ptrdiff_t>(first),
+                                          fitness.begin() + static_cast<std::ptrdiff_t>(last),
+                                          0.0F);
+        const float average = sum / static_cast<float>(last - first);
+        for (std::size_t index = first; index < last; ++index) {
+            shared[index] = (1.0F - blend) * fitness[index] + blend * average;
+        }
+    }
+    return shared;
+}
+
 GenerationSummary GeneticAlgorithm::evolve(const std::span<const float> fitness) {
     if (fitness.size() != population_.size()) {
         throw std::invalid_argument("Fitness count must match the genome population");

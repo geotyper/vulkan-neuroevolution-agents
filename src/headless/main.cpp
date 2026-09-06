@@ -104,7 +104,9 @@ void printHelp(const char* executable) {
                  "  --motor-cost <x>         fitness charged per unit of effort (default 0.002)\n"
                  "  --tracking-reward <x>    shaping for a moving beacon (default 0.25)\n"
                  "  --signal-cost <x>        emission cost relative to moving (default 0.25)\n"
-                 "  --energy-drain <x>       battery drained per effort unit (default 0.0008)\n\n"
+                 "  --energy-drain <x>       battery drained per effort unit (default 0.0008)\n"
+                 "  --fitness-sharing <x>    0 individual selection, 1 whole-world "
+                 "(default 0)\n\n"
                  "Persistence:\n"
                  "  --load-population <path> resume from a genome archive\n"
                  "  --load-world <path>      resume a whole experiment mid-generation\n"
@@ -193,6 +195,8 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.fitness.signalCostFactor = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--energy-drain") {
             options.fitness.energyDrain = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--fitness-sharing") {
+            options.fitness.groupSharing = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--beacon-speed") {
             options.beaconAngularSpeed = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--orbit-ratio") {
@@ -367,7 +371,15 @@ int run(const Options& options) {
                   << "Ablations:  agent collisions "
                   << (state.physics.agentCollisionsEnabled ? "on" : "OFF") << ", agent light "
                   << (state.physics.agentLightEnabled ? "on" : "OFF") << ", trail "
-                  << (state.physics.trailEnabled ? "on" : "OFF") << "\n\n"
+                  << (state.physics.trailEnabled ? "on" : "OFF") << '\n';
+        // Only when it is on, so a default run's output stays byte-identical to
+        // every run recorded before the option existed.
+        if (state.physics.fitness.groupSharing > 0.0F) {
+            std::cout << "Selection:  group fitness sharing " << std::fixed << std::setprecision(2)
+                      << state.physics.fitness.groupSharing << std::defaultfloat
+                      << std::setprecision(6) << " (plotted fitness stays individual)\n";
+        }
+        std::cout << '\n'
                   << "  gen        best      median        mean   arrival\n";
     }
 

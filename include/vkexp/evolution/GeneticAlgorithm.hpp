@@ -24,6 +24,17 @@ struct Genome {
     neuro::Weights weights{};
 };
 
+// Blends each genome's score toward the mean of the group it was evaluated with.
+// Groups are contiguous blocks of `groupSize` genomes -- the same blocks the
+// driver spawns into one logical world -- and the last one may be short.
+//
+// `share` is 0 for pure individual selection and 1 for scoring a whole world
+// together, which is what makes a signal that only helps a neighbour pay its
+// sender back. At 0 the input is returned unchanged, so turning the option off
+// is not merely equivalent to the old behaviour but literally is it.
+[[nodiscard]] std::vector<float> shareFitnessWithinGroups(std::span<const float> fitness,
+                                                          std::size_t groupSize, float share);
+
 struct GenerationSummary {
     std::uint64_t generation{};
     float bestFitness{};

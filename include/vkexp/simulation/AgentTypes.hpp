@@ -174,6 +174,17 @@ struct FitnessWeights {
     float signalCostFactor{0.25F}; // cost of emitting, relative to moving
     float energyDrain{0.0008F};    // battery drained per unit of effort
     float trackingReward{0.25F};   // shaping for scenarios whose beacon keeps moving
+
+    // How much of a genome's score comes from the logical world it lives in
+    // rather than from itself. 0 is pure individual selection, the behaviour
+    // this project has always had; 1 gives every genome sharing a world the
+    // same score, so selection acts on the group and a signal that only helps
+    // a neighbour finally pays its sender back.
+    //
+    // Scoring-time only, and deliberately absent from GpuFitnessWeights: the
+    // other weights act on an agent during the step, this one acts on a
+    // population at the generation boundary and has nothing to say to a shader.
+    float groupSharing{0.0F};
 };
 
 // Units are metres, seconds and radians throughout; see vkexp/simulation/Units.hpp

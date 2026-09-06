@@ -74,16 +74,17 @@ template <typename Visit> void visitPhysics(SimulationStep& physics, Visit&& vis
     visit(physics.fitness.signalCostFactor);
     visit(physics.fitness.energyDrain);
     visit(physics.fitness.trackingReward);
+    visit(physics.fitness.groupSharing);
 }
 
-constexpr std::uint32_t physicsFloatCount = 35;
+constexpr std::uint32_t physicsFloatCount = 36;
 
 // The one guard that cannot go stale by omission. visitPhysics and
 // PhysicsIntegers together have to name every field of SimulationStep, and
 // nothing but a size check notices when a new tunable is added and quietly not
 // saved. If this fires: add the field to one of the two lists above, bump
 // worldSnapshotVersion, then update this number.
-static_assert(sizeof(SimulationStep) == 168,
+static_assert(sizeof(SimulationStep) == 172,
               "SimulationStep changed shape -- update the world snapshot field lists");
 
 // The handful of fields that are not floats, kept apart so the float list above

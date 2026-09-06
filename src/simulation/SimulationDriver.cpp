@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 
@@ -382,7 +383,23 @@ GenerationSummary SimulationDriver::finishGeneration() {
         }
         fitness[genome] /= static_cast<float>(config_.trialsPerGenome);
     }
-    const GenerationSummary summary = evolution_.evolve(fitness);
+    // Selection may see a different number than the run reports. Sharing blends
+    // each genome's score with its world's average, which is the point -- it
+    // makes helping a neighbour pay -- but it also compresses the spread, so a
+    // shared run and an unshared one could not be compared on their own headline
+    // numbers. What is published stays individual, and is therefore the same
+    // quantity at every sharing level; what selects is the shared vector.
+    const std::vector<float> selectionFitness = shareFitnessWithinGroups(
+        fitness, state_.worlds.agentsPerWorld, state_.physics.fitness.groupSharing);
+    GenerationSummary summary = evolution_.evolve(selectionFitness);
+    summary.bestFitness = *std::max_element(fitness.begin(), fitness.end());
+    summary.meanFitness = std::accumulate(fitness.begin(), fitness.end(), 0.0F) /
+                          static_cast<float>(fitness.size());
+    {
+        std::vector<float> sorted = fitness;
+        std::sort(sorted.begin(), sorted.end());
+        summary.medianFitness = sorted[sorted.size() / 2];
+    }
     state_.statistics.bestFitness = summary.bestFitness;
     state_.statistics.meanFitness = summary.meanFitness;
     state_.statistics.medianFitness = summary.medianFitness;

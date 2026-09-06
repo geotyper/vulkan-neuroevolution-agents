@@ -1,7 +1,6 @@
 #include "vkexp/compute/ComputeResources.hpp"
 #include "vkexp/evolution/GeneticAlgorithm.hpp"
 #include "vkexp/evolution/GenomeArchive.hpp"
-#include "vkexp/simulation/WorldSnapshot.hpp"
 #include "vkexp/neuro/BrainKernel.hpp"
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
@@ -10,11 +9,15 @@
 #include "vkexp/simulation/Sensors.hpp"
 #include "vkexp/simulation/TrailKernel.hpp"
 #include "vkexp/simulation/Units.hpp"
+#include "vkexp/simulation/WorldSnapshot.hpp"
 #include "vkexp/worlds/ScenarioKernel.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <exception>
+#include <numeric>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -710,6 +713,48 @@ void testGenomeArchiveRoundTrip() {
     std::filesystem::remove_all(path.parent_path(), cleanupError);
 }
 
+void testGroupFitnessSharing() {
+    // Two worlds of three, deliberately lopsided: one strong genome beside two
+    // weak ones, and a flat group that must come back untouched at any setting.
+    const std::array<float, 6> individual{9.0F, 0.0F, 0.0F, 2.0F, 2.0F, 2.0F};
+
+    const std::vector<float> off = vkexp::shareFitnessWithinGroups(individual, 3, 0.0F);
+    check(std::equal(off.begin(), off.end(), individual.begin()),
+          "Sharing at zero returns the scores unchanged");
+
+    const std::vector<float> full = vkexp::shareFitnessWithinGroups(individual, 3, 1.0F);
+    check(closeTo(full[0], 3.0F) && closeTo(full[1], 3.0F) && closeTo(full[2], 3.0F),
+          "Full sharing scores a whole world together");
+    check(closeTo(full[3], 2.0F) && closeTo(full[4], 2.0F) && closeTo(full[5], 2.0F),
+          "Full sharing leaves an already uniform world alone");
+
+    const std::vector<float> half = vkexp::shareFitnessWithinGroups(individual, 3, 0.5F);
+    check(closeTo(half[0], 6.0F) && closeTo(half[1], 1.5F),
+          "Half sharing sits midway between the genome and its world");
+
+    // The mean of a group is what sharing must not move: a blend cannot invent
+    // or destroy fitness, only redistribute it inside a world. Selection
+    // pressure between worlds therefore survives at every setting.
+    for (const float share : {0.0F, 0.25F, 0.5F, 1.0F}) {
+        const std::vector<float> blended = vkexp::shareFitnessWithinGroups(individual, 3, share);
+        const float before = std::accumulate(individual.begin(), individual.begin() + 3, 0.0F);
+        const float after = std::accumulate(blended.begin(), blended.begin() + 3, 0.0F);
+        check(closeTo(before, after), "Sharing conserves a world's total fitness");
+    }
+
+    // A population that does not divide evenly by the group size leaves a short
+    // last world, which must be averaged over its real members rather than
+    // reading past the end or diluting against absent ones.
+    const std::array<float, 5> ragged{4.0F, 0.0F, 0.0F, 6.0F, 0.0F};
+    const std::vector<float> raggedShared = vkexp::shareFitnessWithinGroups(ragged, 3, 1.0F);
+    check(closeTo(raggedShared[0], 4.0F / 3.0F) && closeTo(raggedShared[3], 3.0F) &&
+              closeTo(raggedShared[4], 3.0F),
+          "A short last world averages over its own members");
+
+    check(vkexp::shareFitnessWithinGroups(individual, 0, 1.0F)[0] > 8.0F,
+          "A zero group size cannot divide by zero");
+}
+
 void testWorldSnapshotRoundTrip() {
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "vkexp_snapshot_test" / "world.vknw";
@@ -935,6 +980,7 @@ int main() {
     testFitnessWeightsAreParameters();
     testSharedScenarioKernel();
     testGenomeArchiveRoundTrip();
+    testGroupFitnessSharing();
     testWorldSnapshotRoundTrip();
     testPopulationReload();
     testStepParameterPacking();

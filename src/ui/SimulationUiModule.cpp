@@ -217,6 +217,15 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                            "%.4f")) {
         state_.controls.resetRequested = true;
     }
+    if (ImGui::SliderFloat("Group fitness sharing", &state_.physics.fitness.groupSharing, 0.0F,
+                           1.0F, "%.2f")) {
+        state_.controls.resetRequested = true;
+    }
+    ImGui::SetItemTooltip("How much of a genome's score comes from the world it shares rather "
+                          "than from itself. At 0 selection is individual and a signal that only "
+                          "helps a neighbour is pure cost. At 1 the whole world is scored "
+                          "together. The plotted fitness stays individual either way, so runs at "
+                          "different settings stay comparable.");
 
     ImGui::SeparatorText("Physics");
     ImGui::Text("Body %.1f cm across, arena %.2f m wide",
