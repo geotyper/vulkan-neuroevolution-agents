@@ -30,27 +30,11 @@ void beforeStep(AgentState& agent, const SimulationStep& settings) {
     }
 }
 
+// False: this scenario has always measured the next leg from the nearest beacon,
+// which right after an arrival is the one just reached. See
+// deliveryCycleAfterStep for why that is kept rather than quietly corrected.
 void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
-    if (agent.internal.y >= 0.5F) {
-        agent.internal.x =
-            std::max(0.0F, agent.internal.x - settings.forageCargoDecayRate * settings.deltaTime);
-    }
-    if (distance >= beaconArrivalRadius(settings)) {
-        return;
-    }
-    agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
-    if (agent.internal.y >= 0.5F) {
-        agent.metrics.w += agent.internal.x * settings.forageDeliveryReward;
-        agent.target.w = static_cast<float>(completedForageCycles(agent) + 1);
-        agent.internal.x = 0.0F;
-        agent.internal.y = 0.0F;
-    } else {
-        agent.metrics.w += settings.foragePickupReward;
-        agent.internal.x = 1.0F;
-        agent.internal.y = 1.0F;
-    }
-    agent.metrics.x = nearestBeaconDistance(agent, settings);
-    agent.metrics.y = agent.metrics.x;
+    deliveryCycleAfterStep(agent, settings, distance, false);
 }
 
 // floats0 = {resource rotation angle, orbit radius ratio, motion time, cargo decay rate},

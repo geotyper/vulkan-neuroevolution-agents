@@ -33,9 +33,10 @@ enum class BeaconScenario : std::uint32_t {
     ForageHome = 4,
     ScentRelay = 5,
     TwoDoors = 6,
+    Shuttle = 7,
 };
 
-inline constexpr std::size_t beaconScenarioCount = 7;
+inline constexpr std::size_t beaconScenarioCount = 8;
 
 // Body radius in metres: a 4.4 cm disc, roughly an e-puck-class table robot.
 // Stored per agent in `pose.w`, so a scenario may vary it; this is the spawn

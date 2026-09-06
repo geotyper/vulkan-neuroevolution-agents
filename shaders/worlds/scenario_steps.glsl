@@ -4,6 +4,7 @@
 #include "worlds/steps/forage_home.glsl"
 #include "worlds/steps/scent_relay.glsl"
 #include "worlds/steps/two_doors.glsl"
+#include "worlds/steps/shuttle.glsl"
 
 // GLSL has no function pointers, so the C++ side's function-pointer hooks become
 // one dispatcher. Keeping it here is the point: agent_step.comp stays free of
@@ -24,6 +25,8 @@ void scenarioAfterStep(inout Agent agent, float distance) {
         scentRelayScenarioAfterStep(agent, distance);
     } else if (params.beaconScenario == 6u) {
         twoDoorsScenarioAfterStep(agent, distance);
+    } else if (params.beaconScenario == 7u) {
+        shuttleScenarioAfterStep(agent, distance);
     } else if (params.beaconScenario == 2u || params.beaconScenario == 3u) {
         trackingScenarioAfterStep(agent, distance);
     } else {

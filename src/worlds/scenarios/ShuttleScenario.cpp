@@ -1,56 +1,59 @@
-#include "vkexp/worlds/scenarios/TwoDoorsScenario.hpp"
+#include "vkexp/worlds/scenarios/ShuttleScenario.hpp"
 
 #include "vkexp/worlds/ScenarioMath.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace vkexp::worlds::two_doors {
+namespace vkexp::worlds::shuttle {
 namespace {
 
 namespace kernel = worlds::kernel;
 
 constexpr Float4 resourceColor{1.00F, 0.82F, 0.20F, 0.0F};
-// Home is lit here, unlike the scent relay. The question this world asks is
-// which gap leads through, and an invisible home would stack a second, already
-// answered question on top of it and make the answer to neither legible.
 constexpr Float4 homeColor{0.20F, 0.55F, 1.00F, 0.0F};
+
+// How many round trips the default trial has room for, at a pace an agent that
+// has learned the detour can actually hold. It is what the reported completion
+// ratio is measured against; the fitness is not capped, so a faster agent still
+// scores for every extra trip.
+constexpr std::uint32_t nominalRoundTrips = 2;
 
 float fitness(const AgentState& agent, const FitnessWeights& weights) {
     return objectiveFitness(agent, completedForageCycles(agent), weights);
 }
 
+// Unlike the other cycle scenarios this counts trips rather than asking whether
+// there was one: shuttling until the time runs out is the task, so a run that
+// manages it twice has to be distinguishable from one that manages it once.
 std::uint32_t achievedObjectives(const AgentState& agent) {
-    return completedForageCycles(agent) > 0 ? 1U : 0U;
+    return std::min(completedForageCycles(agent), nominalRoundTrips);
 }
 
-// True: the next leg is measured from the target that has just become current,
-// so crossing the wall toward it is rewarded as progress.
 void afterStep(AgentState& agent, const SimulationStep& settings, const float distance) {
     deliveryCycleAfterStep(agent, settings, distance, true);
 }
 
-ObstacleBox obstacle(const std::uint32_t index, const AgentState& agent,
-                     const SimulationStep& settings) {
-    const std::uint32_t door = blockedDoor(agent);
-    const kernel::vec2 centre = kernel::twoDoorsBoxCentre(index, settings.worldRadius, door);
-    const kernel::vec2 halfExtent = kernel::twoDoorsBoxHalfExtent(index, settings.worldRadius);
+ObstacleBox obstacle(std::uint32_t, const AgentState&, const SimulationStep& settings) {
+    const kernel::vec2 centre = kernel::shuttleBoxCentre();
+    const kernel::vec2 halfExtent = kernel::shuttleBoxHalfExtent(settings.worldRadius);
     return {{centre.x, centre.y, 0.0F, 0.0F}, {halfExtent.x, halfExtent.y, 0.0F, 0.0F}};
 }
 
-// The driver's default spiral covers the whole arena, which here would start
-// half the population already past the wall with nothing left to solve. The
-// spiral's spread is worth keeping, so it is compressed and moved onto the home
-// side rather than replaced with a grid.
+// Both beacons are fixed and the wall does not divide the arena, so a spawn
+// anywhere would still be a valid start -- but starting on the home side makes
+// the first leg the outbound one for everyone, which is what makes a run legible
+// to watch.
 void spawn(AgentState& agent, const SimulationStep& settings) {
-    const kernel::vec2 home = kernel::twoDoorsHomePosition(settings.worldRadius);
+    const kernel::vec2 home = kernel::shuttleHomePosition(settings.worldRadius);
     agent.pose.x = agent.pose.x * 0.45F + home.x;
-    agent.pose.y = agent.pose.y * 0.30F + home.y;
+    agent.pose.y = agent.pose.y * 0.22F + home.y;
 }
 
-// The scenario needs no packed parameters at all: the geometry is derived from
-// the arena radius on both sides, and which door is blocked comes from the trial
-// the agent already carries. An empty block is the honest thing to send.
+// floats0 = {unused, unused, unused, cargo decay rate},
+// floats1 = {pickup reward, delivery reward, unused, unused} -- the slots
+// scenarioDeliveryCycleAfterStep reads. The geometry needs none: it comes from
+// the arena radius through the shared kernel.
 ScenarioParameterBlock gpuParameters(const SimulationStep& settings) {
     return {{0.0F, 0.0F, 0.0F, settings.forageCargoDecayRate},
             {settings.foragePickupReward, settings.forageDeliveryReward, 0.0F, 0.0F},
@@ -62,33 +65,29 @@ static_assert(brain.fitsCapacity());
 
 } // namespace
 
-std::uint32_t blockedDoor(const AgentState& agent) {
-    return kernel::twoDoorsBlockedDoor(static_cast<std::uint32_t>(std::max(agent.target.z, 0.0F)));
-}
-
 const ScenarioDefinition& definition() {
     static constexpr ScenarioDefinition value{
-        .name = "Two doors",
-        .key = "doors",
-        .id = BeaconScenario::TwoDoors,
+        .name = "Shuttle",
+        .key = "shuttle",
+        .id = BeaconScenario::Shuttle,
         .brain = brain,
         .tunables = {.beaconRadiusRatio = false,
                      .beaconAngularSpeed = false,
                      .beaconRandomMotion = false,
                      .forageCargoDecay = true},
-        .objectiveLabel = "Delivered through a door",
+        .objectiveLabel = "Round trips",
         .radiusLabel = "Orbit radius",
-        .description = "A wall with two gaps; one is a dead end, and it swaps every trial",
+        .description = "Fetch and carry back, over and over, around a wall in the way",
         .beacons = beacons,
         .beaconCount = 2,
         .targetDistance = targetDistance,
         .phaseForStep = nullptr,
         .fitness = fitness,
         .achievedObjectives = achievedObjectives,
-        .objectivesPerAgent = 1,
+        .objectivesPerAgent = nominalRoundTrips,
         .beforeStep = nullptr,
         .afterStep = afterStep,
-        .obstacleCount = kernel::TwoDoorsBoxCount,
+        .obstacleCount = kernel::ShuttleBoxCount,
         .obstacle = obstacle,
         .spawn = spawn,
         .gpuParameters = gpuParameters,
@@ -97,8 +96,8 @@ const ScenarioDefinition& definition() {
 }
 
 ActiveBeacons beacons(const AgentState&, const SimulationStep& settings) {
-    const kernel::vec2 resource = kernel::twoDoorsResourcePosition(settings.worldRadius);
-    const kernel::vec2 home = kernel::twoDoorsHomePosition(settings.worldRadius);
+    const kernel::vec2 resource = kernel::shuttleResourcePosition(settings.worldRadius);
+    const kernel::vec2 home = kernel::shuttleHomePosition(settings.worldRadius);
     return {{{Beacon{{resource.x, resource.y, 0.0F, 0.0F}, resourceColor},
               Beacon{{home.x, home.y, 0.0F, 0.0F}, homeColor}}},
             2};
@@ -112,4 +111,4 @@ float targetDistance(const AgentState& agent, const SimulationStep& settings) {
     return std::sqrt(dx * dx + dy * dy);
 }
 
-} // namespace vkexp::worlds::two_doors
+} // namespace vkexp::worlds::shuttle

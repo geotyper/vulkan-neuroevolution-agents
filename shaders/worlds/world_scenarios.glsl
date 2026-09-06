@@ -7,6 +7,7 @@
 #include "worlds/forage_home.glsl"
 #include "worlds/scent_relay.glsl"
 #include "worlds/two_doors.glsl"
+#include "worlds/shuttle.glsl"
 
 vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint phase,
                             float worldRadius, ScenarioParameters sp) {
@@ -29,6 +30,9 @@ vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint p
     if (scenario == 6u) {
         return twoDoorsScenarioPosition(beaconIndex, worldRadius);
     }
+    if (scenario == 7u) {
+        return shuttleScenarioPosition(beaconIndex, worldRadius);
+    }
     return scentRelayScenarioPosition(agent, beaconIndex, worldRadius, sp);
 }
 
@@ -45,6 +49,9 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
     if (scenario == 6u) {
         return twoDoorsScenarioColor(beaconIndex);
     }
+    if (scenario == 7u) {
+        return shuttleScenarioColor(beaconIndex);
+    }
     return stationaryScenarioColor(trial);
 }
 
@@ -54,7 +61,7 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
 // file never enumerates which scenarios have two beacons.
 float scenarioTargetDistance(uint scenario, Agent agent, vec2 position, uint phase,
                              float worldRadius, uint beaconCount, ScenarioParameters sp) {
-    if (scenario == 4u || scenario == 5u || scenario == 6u) {
+    if (scenario == 4u || scenario == 5u || scenario == 6u || scenario == 7u) {
         const uint targetIndex = agent.internal.y >= 0.5 ? 1u : 0u;
         return length(scenarioBeaconPosition(scenario, agent, targetIndex, phase, worldRadius,
                                              sp) - position);
@@ -75,12 +82,18 @@ vec2 scenarioObstacleCentre(uint scenario, Agent agent, uint index, float worldR
     if (scenario == 6u) {
         return twoDoorsBoxCentre(index, worldRadius, twoDoorsScenarioBlockedDoor(agent));
     }
+    if (scenario == 7u) {
+        return shuttleBoxCentre();
+    }
     return vec2(0.0);
 }
 
 vec2 scenarioObstacleHalfExtent(uint scenario, uint index, float worldRadius) {
     if (scenario == 6u) {
         return twoDoorsBoxHalfExtent(index, worldRadius);
+    }
+    if (scenario == 7u) {
+        return shuttleBoxHalfExtent(worldRadius);
     }
     return vec2(0.0);
 }
@@ -110,6 +123,9 @@ vec3 scenarioBodyTint(uint scenario, Agent agent, vec3 bodyColor) {
     }
     if (scenario == 6u) {
         return twoDoorsScenarioBodyTint(agent, bodyColor);
+    }
+    if (scenario == 7u) {
+        return shuttleScenarioBodyTint(agent, bodyColor);
     }
     return bodyColor;
 }

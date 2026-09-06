@@ -8,6 +8,7 @@
 #include "vkexp/simulation/CpuSimulation.hpp"
 #include "vkexp/simulation/ExperimentSweep.hpp"
 #include "vkexp/simulation/Sensors.hpp"
+#include "vkexp/simulation/SimulationState.hpp"
 #include "vkexp/simulation/TrailKernel.hpp"
 #include "vkexp/simulation/Units.hpp"
 #include "vkexp/simulation/WorldSnapshot.hpp"
@@ -1234,6 +1235,61 @@ void testTwoDoorsGeometry() {
           "The push-out fully separates the circle from the box");
 }
 
+void testShuttleGeometry() {
+    namespace kernel = vkexp::worlds::kernel;
+    constexpr float radius = 1.84F;
+    constexpr float maximumConfigurableSpeed = 1.50F;
+
+    const kernel::vec2 centre = kernel::shuttleBoxCentre();
+    const kernel::vec2 halfExtent = kernel::shuttleBoxHalfExtent(radius);
+    const kernel::vec2 resource = kernel::shuttleResourcePosition(radius);
+    const kernel::vec2 home = kernel::shuttleHomePosition(radius);
+
+    // The whole point of the wall: the straight line between the two beacons is
+    // closed, so going directly is not an option and the shortest route is
+    // around an end.
+    check(kernel::segmentHitsBox(home, resource, centre, halfExtent),
+          "The wall closes the straight line between the beacons");
+
+    // And it is a detour, not a maze: the arena is not divided, so rounding
+    // either end gets there. The route is two legs via a turning point past the
+    // end -- a straight line to that point still crosses the wall near the
+    // middle, which is what makes this a detour worth taking rather than a
+    // slightly angled approach.
+    const float pastEnd = halfExtent.x + vkexp::agentBodyRadius * 2.0F;
+    for (const float side : {-1.0F, 1.0F}) {
+        const kernel::vec2 turn{side * pastEnd, 0.0F};
+        check(!kernel::segmentHitsBox(home, turn, centre, halfExtent) &&
+                  !kernel::segmentHitsBox(turn, resource, centre, halfExtent),
+              "Rounding either end of the wall gets there");
+    }
+    check(halfExtent.x < radius, "The wall is shorter than the arena is wide");
+
+    // Sized by the agent across and by the arena along: how far the detour is
+    // should scale with the room, how solid the wall is should not.
+    for (const float arena : {1.84F, 2.76F, 5.52F}) {
+        check(closeTo(kernel::shuttleBoxHalfExtent(arena).y, vkexp::agentBodyRadius),
+              "Wall thickness does not scale with the arena");
+        check(kernel::shuttleBoxHalfExtent(arena).x > kernel::shuttleBoxHalfExtent(1.0F).x,
+              "Wall length does scale with the arena");
+    }
+
+    const float fastestStep = maximumConfigurableSpeed * vkexp::units::fixedTimeStep;
+    check(2.0F * (halfExtent.y + vkexp::agentBodyRadius) > fastestStep,
+          "The wall cannot be stepped over between two contact tests");
+
+    // A round trip has to fit the default trial more than once, or "keep
+    // shuttling until time runs out" is a single trip with a wait at the end.
+    // Measured along the two-leg detour round the end, at the speed limit.
+    const float oneWay = 2.0F * std::hypot(pastEnd, resource.y);
+    const float roundTripSeconds = 2.0F * oneWay / vkexp::SimulationStep{}.maximumSpeed;
+    const float trialSeconds =
+        vkexp::units::secondsForSteps(vkexp::SimulationControls{}.stepsPerGeneration,
+                                      vkexp::units::fixedTimeStep);
+    check(roundTripSeconds * 2.0F < trialSeconds,
+          "The default trial has room for at least two round trips");
+}
+
 void testExperimentSweep() {
     vkexp::SweepState sweep;
     sweep.values = {0.0F, 0.5F, 1.0F};
@@ -1327,6 +1383,7 @@ int main() {
     testExperimentSweep();
     testNeuronTimeConstants();
     testTwoDoorsGeometry();
+    testShuttleGeometry();
     testScenarioRegistryContract();
     testFitnessWeightsAreParameters();
     testSharedScenarioKernel();

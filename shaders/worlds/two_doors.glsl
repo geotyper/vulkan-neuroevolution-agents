@@ -3,13 +3,11 @@
 // blocked comes from the trial the agent already carries, so this file only
 // says which numbers mean what.
 //
-// floats0 = {cargo decay rate, unused, unused, unused},
+// floats0 = {unused, unused, unused, cargo decay rate},
 // floats1 = {pickup reward, delivery reward, unused, unused}.
-// Packed by gpuParameters in src/worlds/scenarios/TwoDoorsScenario.cpp.
-
-float twoDoorsScenarioCargoDecayRate(ScenarioParameters sp) {
-    return sp.floats0.x;
-}
+// Packed by gpuParameters in src/worlds/scenarios/TwoDoorsScenario.cpp; the
+// slots are the ones scenarioDeliveryCycleAfterStep reads for every scenario
+// running the collect-and-deliver cycle.
 
 uint twoDoorsScenarioBlockedDoor(Agent agent) {
     return twoDoorsBlockedDoor(uint(max(agent.target.z, 0.0)));

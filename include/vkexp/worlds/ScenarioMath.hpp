@@ -55,6 +55,46 @@ inline void recordPhaseArrival(AgentState& agent, const SimulationStep& settings
     agent.target.w = static_cast<float>(completedMask);
 }
 
+// The collect-and-deliver cycle: reach the resource, carry it home, repeat until
+// the trial ends. Four scenarios run exactly this and differ only in what stands
+// between the two ends, so it lives here rather than being copied a fourth time.
+// Mirrored by scenarioDeliveryCycleAfterStep in shaders/worlds/steps/shared.glsl.
+//
+// `measureNextLegToTarget` picks what the next leg's progress is measured from.
+// True uses the scenario's current target, which has just switched and is the
+// thing the agent now has to reach. False uses the nearest beacon, which
+// immediately after an arrival is the beacon just reached -- so the leg starts
+// from zero, `metrics.y` can never fall below it, and the "got closer" gradient
+// never fires for that leg at all. Forage and scent relay were written that way
+// and keep it here: it is very likely a shaping bug, but changing it would
+// silently change what their recorded runs mean, so it is a separate decision.
+inline void deliveryCycleAfterStep(AgentState& agent, const SimulationStep& settings,
+                                   const float distance, const bool measureNextLegToTarget) {
+    if (agent.internal.y >= 0.5F) {
+        agent.internal.x =
+            std::max(0.0F, agent.internal.x - settings.forageCargoDecayRate * settings.deltaTime);
+    }
+    if (distance >= beaconArrivalRadius(settings)) {
+        return;
+    }
+    agent.metrics.w += std::max(agent.metrics.x - agent.metrics.y, 0.0F);
+    if (agent.internal.y >= 0.5F) {
+        agent.metrics.w += agent.internal.x * settings.forageDeliveryReward;
+        agent.target.w = static_cast<float>(completedForageCycles(agent) + 1);
+        agent.internal.x = 0.0F;
+        agent.internal.y = 0.0F;
+    } else {
+        agent.metrics.w += settings.foragePickupReward;
+        agent.internal.x = 1.0F;
+        agent.internal.y = 1.0F;
+    }
+    const ScenarioDefinition& scenario = scenarioDefinition(settings.beaconScenario);
+    agent.metrics.x = measureNextLegToTarget && scenario.targetDistance != nullptr
+                          ? scenario.targetDistance(agent, settings)
+                          : nearestBeaconDistance(agent, settings);
+    agent.metrics.y = agent.metrics.x;
+}
+
 // Continuous shaping for scenarios whose beacon keeps moving: without it a
 // tracking agent scores nothing between arrivals.
 inline void rewardVisibleTracking(AgentState& agent, const SimulationStep& settings,

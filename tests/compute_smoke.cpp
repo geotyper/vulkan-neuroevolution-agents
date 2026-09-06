@@ -855,6 +855,7 @@ int run() {
     // response exists twice -- in stepAgentCpu and in agent_step.comp. That is
     // exactly the duplication parity is for.
     runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::TwoDoors);
+    runNeuralStepParity(context, vkexp::WorldShape::Circle, vkexp::BeaconScenario::Shuttle);
     runAgentInteractionTest(context, false);
     runAgentInteractionTest(context, true);
     // 540 steps at the default 1/60 s covers 9 simulated seconds, so the forage
@@ -866,6 +867,7 @@ int run() {
     runTrajectoryParity(context, vkexp::BeaconScenario::ForageHome, 540);
     runTrajectoryParity(context, vkexp::BeaconScenario::ScentRelay, 540);
     runTrajectoryParity(context, vkexp::BeaconScenario::TwoDoors, 540);
+    runTrajectoryParity(context, vkexp::BeaconScenario::Shuttle, 540);
     runGenomeAddressingProbe(context);
     runTrailFieldProbe(context);
     runMultiAgentDeterminism(context);

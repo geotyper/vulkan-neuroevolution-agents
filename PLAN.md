@@ -93,6 +93,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [x] discrete small, medium, and large training arenas;
 - [x] recurrent/internal state with explicit reset semantics;
 - [x] energy pickup and nest delivery;
+- [x] repeated delivery cycles scored by count within one trial;
 - [x] outbound/return behavior fitness;
 - [x] runtime ablation switches reachable from the batch runner;
 - [ ] ablation mode comparing reactive and recurrent brains.

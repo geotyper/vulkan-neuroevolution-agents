@@ -83,6 +83,7 @@ only work from one spawn position or heading.
 | Beacon scenario | Forage + home | Agents collect an orange orbiting resource, then carry its decaying value to a blue home that relocates every eight seconds before seeking the resource again. |
 | Beacon scenario | Scent relay | The same collect-and-deliver cycle, but home emits no light and lays no trail: it can only be found by dead reckoning or by a path the agents themselves marked. |
 | Beacon scenario | Two doors | The same cycle across a wall with two gaps, one of which is a dead end. Which one swaps every trial, and from the home side they are identical. |
+| Beacon scenario | Shuttle | Fetch and carry back, over and over until the trial ends, around a short wall that closes the straight line between the two beacons. |
 
 Changing the world size, shape, or beacon scenario resets the evolution because
 fitness values gathered in different environments are not directly comparable.
@@ -99,6 +100,43 @@ is absent from every light sensor and lays nothing on the ground. What the
 agents do leave behind is their own trail, coloured by their own signal output,
 which the antennae can read. Nothing in the fitness function mentions colour, so
 whether a shared meaning emerges is the experiment rather than the design.
+
+## Shuttle
+
+Two fixed beacons facing each other with a short wall between them, and a trial
+long enough to run the round trip more than once. Reach the resource, carry it
+home, go again, until the time runs out.
+
+```
+        resource
+   +-------------------+
+   |                   |
+   |     #########     |   the wall, at y = 0
+   |                   |
+   |        home       |
+   +-------------------+
+```
+
+The wall does not divide the arena -- it is shorter than the beacons are far
+apart -- so there is no door to find and nothing to remember about which way is
+open. What it takes away is the straight line: the shortest route is around one
+end, and with light occluded the far beacon disappears behind the wall on the
+way. That is the whole of the world, deliberately: it is the cycle scenario with
+the temptation to go straight removed, and nothing else added.
+
+Unlike the other cycle scenarios this counts **trips** rather than asking
+whether there was one, because shuttling until the time runs out is the task and
+a run that manages it twice has to be distinguishable from one that manages it
+once. Completion is reported against two round trips, which is what the default
+15 s trial has room for at the speed limit -- the geometry is sized for that and
+the unit test asserts it, so the wall and the trial length cannot drift apart
+unnoticed. Fitness is not capped, so a faster agent still scores for every extra
+trip. Longer trials make more of them fit:
+
+```sh
+vkneuro_headless --scenario shuttle --generations 200 --seed 5 --csv runs/shuttle.csv
+vkneuro_headless --scenario shuttle --generations 200 --steps 2700   # 45 s trials
+```
 
 ## Two doors
 

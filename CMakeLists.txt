@@ -143,6 +143,7 @@ add_library(vkneuro_domain STATIC
     src/simulation/ExperimentSweep.cpp
     src/simulation/StepParameters.cpp
     src/worlds/WorldScenario.cpp
+    src/worlds/scenarios/ShuttleScenario.cpp
     src/worlds/scenarios/StationaryScenario.cpp
     src/worlds/scenarios/TwoDoorsScenario.cpp
     src/worlds/scenarios/AlternatingScenario.cpp
@@ -228,6 +229,11 @@ if(BUILD_TESTING)
         --scenario doors --generations 2 --steps 48 --population 32
         --agents-per-world 8 --quiet)
     set_tests_properties(vkneuro_headless_doors PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_test(NAME vkneuro_headless_shuttle COMMAND vkneuro_headless
+        --scenario shuttle --generations 2 --steps 48 --population 32
+        --agents-per-world 8 --quiet)
+    set_tests_properties(vkneuro_headless_shuttle PROPERTIES SKIP_RETURN_CODE 77)
 
     add_test(NAME vkneuro_headless_resume COMMAND vkneuro_headless
         --scenario forage --generations 1 --steps 24 --population 32

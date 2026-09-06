@@ -29,6 +29,49 @@ const float BeaconVisualRadius = 0.060f;
 // the other. testTwoDoorsGeometry asserts the two stay equal.
 const float ScenarioAgentBodyRadius = 0.022f;
 
+// --- shuttle ---------------------------------------------------------------
+//
+// Two beacons facing each other with a short wall between them, and a trial long
+// enough to run the round trip more than once. The wall does not divide the
+// arena -- it is shorter than the gap between the beacons is wide -- so there is
+// no door to find and nothing to remember about which way is open. What it takes
+// away is the straight line: the shortest path is around one end, and with light
+// occluded the far beacon disappears behind it on the way.
+//
+//        resource
+//   +-------------------+
+//   |                   |
+//   |     #########     |   the wall, at y = 0
+//   |                   |
+//   |       home        |
+//   +-------------------+
+
+const uint ShuttleBoxCount = 1u;
+// Chosen so a round trip round the end of the wall fits the default 15 s trial
+// at least twice at the speed limit: shuttling until the time runs out is the
+// task, and a geometry with room for one trip and a wait is a different one.
+// testShuttleGeometry asserts that, so the two numbers cannot drift apart from
+// the trial length unnoticed.
+const float ShuttleBeaconY = 0.38f;      // fraction of the world radius
+const float ShuttleWallHalfLength = 0.26f;
+
+VKEXP_KERNEL_FN vec2 shuttleResourcePosition(float worldRadius) {
+    return vec2(0.0f, ShuttleBeaconY * worldRadius);
+}
+
+VKEXP_KERNEL_FN vec2 shuttleHomePosition(float worldRadius) {
+    return vec2(0.0f, -ShuttleBeaconY * worldRadius);
+}
+
+VKEXP_KERNEL_FN vec2 shuttleBoxCentre() { return vec2(0.0f, 0.0f); }
+
+// Sized by the agent across, like the two-door walls, and by the arena along:
+// how far the detour is should scale with the room, how solid the wall is
+// should not.
+VKEXP_KERNEL_FN vec2 shuttleBoxHalfExtent(float worldRadius) {
+    return vec2(ShuttleWallHalfLength * worldRadius, ScenarioAgentBodyRadius);
+}
+
 // --- two doors -------------------------------------------------------------
 //
 // A wall across the arena with two gaps. One leads through to the resource; the
