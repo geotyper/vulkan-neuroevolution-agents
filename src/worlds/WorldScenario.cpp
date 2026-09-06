@@ -55,6 +55,20 @@ const std::array<const ScenarioDefinition*, beaconScenarioCount>& registry() {
 
 std::span<const ScenarioDefinition* const> scenarioRegistry() { return registry(); }
 
+bool sightBlocked(const AgentState& agent, const SimulationStep& settings, const float fromX,
+                  const float fromY, const float toX, const float toY) {
+    const ScenarioDefinition& scenario = scenarioDefinition(settings.beaconScenario);
+    for (std::uint32_t index = 0; index < scenario.obstacleCount; ++index) {
+        const ObstacleBox box = scenario.obstacle(index, agent, settings);
+        if (worlds::kernel::segmentHitsBox({fromX, fromY}, {toX, toY},
+                                           {box.centre.x, box.centre.y},
+                                           {box.halfExtent.x, box.halfExtent.y})) {
+            return true;
+        }
+    }
+    return false;
+}
+
 const ScenarioDefinition& scenarioDefinition(const BeaconScenario scenario) {
     const auto index = static_cast<std::size_t>(scenario);
     const auto& definitions = registry();

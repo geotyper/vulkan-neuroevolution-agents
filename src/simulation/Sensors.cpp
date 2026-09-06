@@ -33,6 +33,14 @@ neuro::Inputs sampleAgentInputs(const AgentState& agent, const SimulationStep& s
 
     for (std::size_t beaconIndex = 0; beaconIndex < beacons.count; ++beaconIndex) {
         const Beacon& beacon = beacons.values[beaconIndex];
+        // A wall that stops a body but not its light is a wall an agent can see
+        // through, and the gradient then pulls it straight at the one place it
+        // cannot go. Occlusion is per beacon, not per receptor: the beacon is a
+        // point, so either the line to it is clear or the beacon is not there.
+        if (sightBlocked(agent, settings, agent.pose.x, agent.pose.y, beacon.position.x,
+                         beacon.position.y)) {
+            continue;
+        }
         const float dx = beacon.position.x - agent.pose.x;
         const float dy = beacon.position.y - agent.pose.y;
         const float distanceSquared = dx * dx + dy * dy;

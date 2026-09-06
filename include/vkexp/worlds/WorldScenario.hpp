@@ -123,6 +123,11 @@ struct ScenarioDefinition {
 [[nodiscard]] SimulationStep resolveStepSettings(const SimulationStep& base, std::uint32_t step,
                                                  std::uint32_t stepsPerGeneration);
 
+// True when the scenario's static geometry stands between the two points.
+// Scenarios without obstacles answer false without looking at anything.
+[[nodiscard]] bool sightBlocked(const AgentState& agent, const SimulationStep& settings,
+                                float fromX, float fromY, float toX, float toY);
+
 [[nodiscard]] Float4 stationaryBeaconPosition(std::uint32_t trial, float worldRadius);
 [[nodiscard]] Float4 homeBeaconPosition(const AgentState& agent, const SimulationStep& settings);
 [[nodiscard]] bool homeBeaconRelocated(const SimulationStep& settings);

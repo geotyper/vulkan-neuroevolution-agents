@@ -85,6 +85,21 @@ vec2 scenarioObstacleHalfExtent(uint scenario, uint index, float worldRadius) {
     return vec2(0.0);
 }
 
+// True when the scenario's static geometry stands between the two points.
+// `obstacleCount` comes from the step parameters, so a scenario with no
+// obstacles costs one comparison and this file never enumerates who has any.
+bool scenarioSightBlocked(uint scenario, Agent agent, vec2 start, vec2 finish, float worldRadius,
+                          uint obstacleCount) {
+    for (uint index = 0u; index < obstacleCount; ++index) {
+        if (segmentHitsBox(start, finish,
+                           scenarioObstacleCentre(scenario, agent, index, worldRadius),
+                           scenarioObstacleHalfExtent(scenario, index, worldRadius))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Optional scenario-specific body colouring for the visualization.
 vec3 scenarioBodyTint(uint scenario, Agent agent, vec3 bodyColor) {
     if (scenario == 4u) {

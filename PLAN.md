@@ -81,7 +81,8 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [x] configurable fitness penalty for world-boundary contacts;
 - [x] static axis-aligned obstacles reported through the tactile channel;
 - [x] scenario-owned spawn placement;
-- [ ] wall-ray and occlusion parity tests;
+- [x] light occlusion by static obstacles, covered by parity;
+- [ ] wall-ray and occlusion parity tests for a general segment world;
 - [ ] procedural maze trials with train/evaluation seed separation.
 
 ### 4. Memory and task switching
@@ -101,7 +102,7 @@ and CPU/GPU parity fails loudly after a contract-breaking shader change.
 - [x] spatially accelerated additive RGB perception of nearby agents;
 - [x] signal energy cost;
 - [x] decaying ground trail field with antenna sensing (stigmergy);
-- [ ] wall occlusion;
+- [x] wall occlusion;
 - [ ] family/colony fitness and related genome batches;
 - [ ] signal-off ablation to prove communication affects fitness;
 - [ ] multiple colonies and optional interception of foreign signals.

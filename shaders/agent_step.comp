@@ -117,7 +117,15 @@ void main() {
         receptorDirections[receptor] = vec2(cos(sensorAngle), sin(sensorAngle));
     }
     for (uint beaconIndex = 0; beaconIndex < params.beaconCount; ++beaconIndex) {
-        const vec2 toBeacon = activeBeaconPosition(agent, beaconIndex) - agent.pose.xy;
+        const vec2 beaconPosition = activeBeaconPosition(agent, beaconIndex);
+        // Mirrors the occlusion test in Sensors.cpp. Per beacon and not per
+        // receptor: a beacon is a point, so either the line to it is clear or
+        // the beacon is not there at all.
+        if (scenarioSightBlocked(params.beaconScenario, agent, agent.pose.xy, beaconPosition,
+                                 params.worldRadius, params.obstacleCount)) {
+            continue;
+        }
+        const vec2 toBeacon = beaconPosition - agent.pose.xy;
         const float beaconDistanceSquared = dot(toBeacon, toBeacon);
         const float beaconDistance = sqrt(max(beaconDistanceSquared, 1.0e-8));
         const vec2 beaconDirection = toBeacon / beaconDistance;
@@ -168,7 +176,14 @@ void main() {
                             ? toOther / distanceToOther
                             : vec2(id < uint(otherId) ? 1.0 : -1.0, 0.0);
                     if (params.agentLightEnabled != 0 &&
-                        distanceToOther <= params.lightSensorRange && other.signal.a > 0.0) {
+                        distanceToOther <= params.lightSensorRange && other.signal.a > 0.0 &&
+                        // Agent light is GPU-only state, like the trail field, so
+                        // this has no CPU counterpart to keep in step -- but a
+                        // signal seen through a wall would be as wrong here as a
+                        // beacon seen through one.
+                        !scenarioSightBlocked(params.beaconScenario, agent, agent.pose.xy,
+                                              other.pose.xy, params.worldRadius,
+                                              params.obstacleCount)) {
                         const float relativeDistance = distanceToOther / params.lightSensorRange;
                         const float attenuation =
                             rangeFalloff(distanceToOther) /

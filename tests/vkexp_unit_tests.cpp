@@ -1160,6 +1160,39 @@ void testTwoDoorsGeometry() {
     }
     check(everyBoxStopsAnAgent, "No barrier is thin enough for an agent to step over in one step");
 
+    // Occlusion, stated as the world rather than as the slab test: standing at
+    // home, the resource is hidden by the wall; standing in a doorway, it is
+    // not. If the wall stopped bodies but not light the gradient would pull
+    // every agent straight at the one place it cannot go.
+    for (const std::uint32_t blocked : {0U, 1U}) {
+        const kernel::vec2 home = kernel::twoDoorsHomePosition(radius);
+        const kernel::vec2 resource = kernel::twoDoorsResourcePosition(radius);
+        const auto blockedBetween = [&](const kernel::vec2 from, const kernel::vec2 to) {
+            for (kernel::uint index = 0; index < kernel::TwoDoorsBoxCount; ++index) {
+                if (kernel::segmentHitsBox(from, to,
+                                           kernel::twoDoorsBoxCentre(index, radius, blocked),
+                                           kernel::twoDoorsBoxHalfExtent(index, radius))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        check(blockedBetween(home, resource), "The wall hides the resource from home");
+        const float openX = kernel::twoDoorsDoorCentre(1U - blocked, radius);
+        check(!blockedBetween({openX, 0.0F}, resource),
+              "From the open doorway the resource is in sight");
+        check(!blockedBetween({openX, 0.0F}, home),
+              "From the open doorway home is still in sight");
+        // Inside the dead end the agent is walled in on light as well as on
+        // movement, which is what makes the mistake cost something to discover.
+        const float deadEndX = kernel::twoDoorsDoorCentre(blocked, radius);
+        const float inside = kernel::TwoDoorsPocketDepth * radius * 0.5F;
+        check(blockedBetween({deadEndX, inside}, resource),
+              "The dead end hides the resource too");
+        check(!blockedBetween(home, {0.0F, kernel::TwoDoorsHomeY * radius * 0.2F}),
+              "Nothing occludes a line that never reaches the wall");
+    }
+
     check(kernel::twoDoorsBlockedDoor(0U) != kernel::twoDoorsBlockedDoor(1U) &&
               kernel::twoDoorsBlockedDoor(0U) == kernel::twoDoorsBlockedDoor(2U),
           "The dead end swaps every trial");

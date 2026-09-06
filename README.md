@@ -140,6 +140,25 @@ individual incentive that does not depend on turning group fitness sharing on.
 Nothing in the fitness function mentions colour; whether a mark acquires a
 meaning is still the experiment rather than the design.
 
+**Light is occluded.** A wall that stops a body but not its light is a wall an
+agent can see through, and the gradient then pulls it straight at the one place
+it cannot go. Occlusion is a slab test on the segment from the agent to the
+light, done per beacon and per neighbour rather than per receptor: a light is a
+point, so either the line to it is clear or it is not there at all.
+
+That is roughly twelve slab tests per agent per step, beside a brain that
+already does more than a thousand multiplies. A lightmap rebuilt each tick
+would answer the same question by sampling and would be the right tool for
+hundreds of sources over complex geometry; with two beacons and six boxes it is
+both slower and coarser, and the receptors are directional -- a map gives the
+light at a point and loses the direction the sharp receptor tuning needs, so it
+would have to be marched along each ray anyway.
+
+Note what this leaves in place: perception loses the resource behind the wall,
+but fitness does not. Progress is still banked against the geometric distance to
+the target, so the task stays learnable by shaping while being unsolvable by
+looking.
+
 **Geometry.** Six axis-aligned boxes, derived from the arena radius by
 `ScenarioKernel.inl` rather than stored, so they cost no parameter slot and the
 CPU and the shader cannot disagree about where a wall is. Contact reports
@@ -148,7 +167,9 @@ barrier is a barrier, and no new input had to be found room for. The unit test
 sweeps the wall line for a seam between segments, sweeps the pocket boundary for
 a way out, and asserts that no barrier is thinner than the distance an agent
 covers in one step -- a wall a fast agent steps over between two contact tests
-is decoration.
+is decoration. Occlusion is asserted as the world rather than as the slab test:
+from home the resource is hidden, from the open doorway it is not, and inside
+the dead end it is hidden again.
 
 The scenario also places its own spawn: the driver's default spiral covers the
 whole arena, which here would start half the population already past the wall

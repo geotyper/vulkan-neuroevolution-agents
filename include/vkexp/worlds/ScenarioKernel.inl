@@ -128,6 +128,64 @@ VKEXP_KERNEL_FN vec2 twoDoorsBoxHalfExtent(uint index, float worldRadius) {
     return vec2(thickness, TwoDoorsPocketDepth * worldRadius * 0.5f);
 }
 
+// Does the segment from `start` to `finish` cross the box? The slab test, which
+// is the whole of light occlusion: a wall that stops a body but not its light is
+// a wall an agent can see through, and the light gradient then pulls it straight
+// into the one place it cannot go.
+//
+// A lightmap would answer the same question by sampling, and would be the right
+// tool for hundreds of sources over complex geometry. Here there are at most two
+// beacons and six boxes, and the receptors are directional -- a map gives the
+// light at a point and loses the direction the sharp receptor tuning needs, so
+// it would have to be marched along each ray anyway. Twelve slab tests per agent
+// per step sit beside a brain that already does more than a thousand multiplies.
+VKEXP_KERNEL_FN bool segmentHitsBox(vec2 start, vec2 finish, vec2 centre, vec2 halfExtent) {
+    float enter = 0.0f;
+    float leave = 1.0f;
+
+    const float spanX = finish.x - start.x;
+    const float lowX = centre.x - halfExtent.x;
+    const float highX = centre.x + halfExtent.x;
+    if (spanX > -1.0e-8f && spanX < 1.0e-8f) {
+        // Parallel to the slab: either the whole segment is inside it or the box
+        // cannot be crossed at all.
+        if (start.x < lowX || start.x > highX) {
+            return false;
+        }
+    } else {
+        float nearX = (lowX - start.x) / spanX;
+        float farX = (highX - start.x) / spanX;
+        if (nearX > farX) {
+            const float held = nearX;
+            nearX = farX;
+            farX = held;
+        }
+        enter = max(enter, nearX);
+        leave = leave < farX ? leave : farX;
+    }
+
+    const float spanY = finish.y - start.y;
+    const float lowY = centre.y - halfExtent.y;
+    const float highY = centre.y + halfExtent.y;
+    if (spanY > -1.0e-8f && spanY < 1.0e-8f) {
+        if (start.y < lowY || start.y > highY) {
+            return false;
+        }
+    } else {
+        float nearY = (lowY - start.y) / spanY;
+        float farY = (highY - start.y) / spanY;
+        if (nearY > farY) {
+            const float held = nearY;
+            nearY = farY;
+            farY = held;
+        }
+        enter = max(enter, nearY);
+        leave = leave < farY ? leave : farY;
+    }
+
+    return enter <= leave;
+}
+
 // Push-out for a circle against an axis-aligned box: zero when clear, otherwise
 // the shortest vector that separates them. Written as the shallowest overlap
 // axis rather than as a nearest-point normal so an agent that has sunk into a
