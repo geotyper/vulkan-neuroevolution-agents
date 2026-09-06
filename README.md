@@ -78,6 +78,7 @@ only work from one spawn position or heading.
 | Beacon scenario | Rotating | One beacon per trial continuously orbits the world centre; speed and direction are adjustable from -90 to +90 degrees per second. |
 | Beacon scenario | Random movement | Each trial follows a smooth bounded wandering path with adjustable speed and a configurable teleport chance checked every three seconds. |
 | Beacon scenario | Forage + home | Agents collect an orange orbiting resource, then carry its decaying value to a blue home that relocates every eight seconds before seeking the resource again. |
+| Beacon scenario | Scent relay | The same collect-and-deliver cycle, but home emits no light and lays no trail: it can only be found by dead reckoning or by a path the agents themselves marked. |
 
 Changing the world size, shape, or beacon scenario resets the evolution because
 fitness values gathered in different environments are not directly comparable.
@@ -87,6 +88,13 @@ of the generation. The moving scenarios additionally reward sustained visible
 closeness, so following the target scores better than a chance encounter.
 Rotating and random scenarios expose an orbit/roaming-radius control; the
 default random teleport probability is 25%.
+
+The scent relay is the foraging cycle with the return trip made invisible. The
+resource orbits and is lit as before; home sits opposite it and is black, so it
+is absent from every light sensor and lays nothing on the ground. What the
+agents do leave behind is their own trail, coloured by their own signal output,
+which the antennae can read. Nothing in the fitness function mentions colour, so
+whether a shared meaning emerges is the experiment rather than the design.
 
 The foraging scenario does not grant passive tracking fitness. Reaching the
 resource switches an explicit task input from `seek resource` to `seek home`
@@ -208,9 +216,9 @@ in -- so a hash constant or a beacon formula exists exactly once. The remaining
 scenario identity checks live in two GLSL dispatchers, which is as far as a
 language without function pointers allows.
 
-The four beacon-following scenarios currently use a reactive `48 -> 20 -> 6`
-brain. `Forage + home` declares `52 -> 20 -> 8`, adding task state and two
-recurrent memory cells. Scenario changes still reset evolution, while the GA
+The four beacon-following scenarios currently use a reactive `57 -> 20 -> 6`
+brain. `Forage + home` and `Scent relay` declare `61 -> 20 -> 8`, adding task
+state and two recurrent memory cells. Scenario changes still reset evolution, while the GA
 and fixed-capacity GPU genome buffers remain shared.
 
 ## CPU/GPU correctness
@@ -304,6 +312,13 @@ parameter sweeps and ablation comparisons possible:
 # Resume a saved population.
 ./build/release/vkneuro_headless --scenario forage --generations 50 \
     --load-population runs/forage-population.vkng
+
+# Save and resume a whole experiment, not just its weights. The snapshot carries
+# the scenario, arena and every physics setting, so the resume restates none of
+# them.
+./build/release/vkneuro_headless --scenario scent --generations 40 \
+    --save-world runs/scent.vknw
+./build/release/vkneuro_headless --generations 40 --load-world runs/scent.vknw
 ```
 
 Fitness shaping coefficients are flags too (`--objective-bonus`, `--motor-cost`,
@@ -321,6 +336,17 @@ done
 Genome archives are versioned little-endian files
 that record the generation, scenario, seed, fitness and brain shape, and refuse
 to load into a build with a different weight count.
+
+A world snapshot (`.vknw`) is the heavier sibling: the population, where every
+agent stands, the generation and step it was on, and every physics setting,
+which is what lets a resume start mid-generation with no flags. It is equally
+strict, rejecting a file written for a different brain topology, agent layout or
+settings list, and a population or trial count the running process cannot hold,
+since both are buffer dimensions fixed at startup. The trail field is
+deliberately excluded: it is device-local, up to 256 MiB, and derived -- a
+couple of half-lives of stepping rebuilds it, which costs less than storing it.
+The interactive build has the same thing under **Snapshot** in the control
+panel.
 
 The debug suite contains pure unit tests, CLI smoke tests, two short real
 headless evolution runs covering the archive round trip, and a headless Vulkan

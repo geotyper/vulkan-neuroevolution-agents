@@ -182,6 +182,16 @@ Shared math belongs in `include/vkexp/worlds/ScenarioKernel.inl`, which both
 languages compile. Nothing else needs editing: the simulation, the scoring, the
 batch runner's `--scenario` list and the UI controls all read the definition.
 
+## Persistence
+
+Two formats, deliberately separate. A genome archive (`.vkng`) carries weights
+between runs and is the thing to keep. A world snapshot (`.vknw`) carries a whole
+experiment between sessions -- population, agent positions, generation, step and
+every physics setting -- and is the thing to reopen. The snapshot is written
+field by field through one visitor list walked in both directions, so save and
+load order cannot diverge, and a size assertion on `SimulationStep` makes a newly
+added tunable a build failure rather than a silently dropped field.
+
 ## Immediate next step
 
 Add champion replay and receptor visualization before walls. Those tools make

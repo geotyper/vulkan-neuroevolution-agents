@@ -288,6 +288,35 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
         static_cast<double>(units::metresToCentimetres(state_.physics.trailCellSize)), trailWidth,
         trailWidth, fieldBytes / (1024.0 * 1024.0));
     ImGui::TextDisabled("decay traffic %.0f MB per step", 2.0 * fieldBytes / (1024.0 * 1024.0));
+    // A snapshot is the fast way back to a run worth looking at, so it sits with
+    // the run controls rather than in an export menu. Everything except the trail
+    // field is stored; the field rebuilds itself within a couple of half-lives.
+    ImGui::SeparatorText("Snapshot");
+    std::array<char, 256> snapshotPath{};
+    const std::size_t pathLength =
+        std::min(state_.controls.snapshotPath.size(), snapshotPath.size() - 1);
+    std::copy_n(state_.controls.snapshotPath.begin(), pathLength, snapshotPath.begin());
+    if (ImGui::InputText("File", snapshotPath.data(), snapshotPath.size())) {
+        state_.controls.snapshotPath = snapshotPath.data();
+    }
+    const bool haveSnapshotPath = !state_.controls.snapshotPath.empty();
+    ImGui::BeginDisabled(!haveSnapshotPath);
+    if (ImGui::Button("Save world")) {
+        state_.controls.saveRequested = true;
+    }
+    ImGui::SetItemTooltip("Population, agent positions, generation, step and every physics "
+                          "setting. Not the trail field.");
+    ImGui::SameLine();
+    if (ImGui::Button("Load world")) {
+        state_.controls.loadRequested = true;
+    }
+    ImGui::SetItemTooltip("Resumes on the step it was saved on. Needs the same population size "
+                          "and trial count as this run.");
+    ImGui::EndDisabled();
+    if (!state_.controls.snapshotStatus.empty()) {
+        ImGui::TextWrapped("%s", state_.controls.snapshotStatus.c_str());
+    }
+
     ImGui::SeparatorText("Show");
     ImGui::Checkbox("Trails", &state_.display.trail);
     ImGui::SameLine();

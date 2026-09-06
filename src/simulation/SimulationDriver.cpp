@@ -9,6 +9,7 @@
 #include <cstring>
 #include <numbers>
 #include <stdexcept>
+#include <string>
 
 namespace vkexp {
 namespace {
@@ -306,6 +307,62 @@ void SimulationDriver::loadPopulation(const std::span<const Genome> genomes,
     evolution_.setPopulation(genomes, generation);
     state_.statistics.generation = generation;
     resetGeneration();
+}
+
+WorldSnapshot SimulationDriver::snapshot() {
+    agentBuffers_.read().read(agents_.data(), agents_.size() * sizeof(AgentState));
+    WorldSnapshot result;
+    result.physics = state_.physics;
+    result.genomes.assign(evolution_.population().begin(), evolution_.population().end());
+    result.agents = agents_;
+    result.generation = evolution_.generation();
+    result.step = state_.statistics.step;
+    result.stepsPerGeneration = state_.controls.stepsPerGeneration;
+    result.requestedAgentsPerWorld = state_.worlds.requestedAgentsPerWorld;
+    result.trialsPerGenome = config_.trialsPerGenome;
+    result.seed = evolution_.settings().seed;
+    return result;
+}
+
+void SimulationDriver::restoreSnapshot(const WorldSnapshot& snapshot) {
+    // Order matters. The world layout depends on the physics settings and the
+    // group size, and the trail and grid dimensions depend on the layout, so the
+    // settings go in before anything is sized. The agents go in last, after
+    // uploadPopulation would otherwise have replaced them with fresh ones.
+    // Population size and trial count are buffer dimensions fixed when the
+    // device resources were created, not settings. A snapshot that disagrees
+    // cannot be resumed into this driver, and saying so beats writing past the
+    // end of the agent buffer.
+    if (snapshot.genomes.size() != evolution_.population().size()) {
+        throw WorldSnapshotError("Snapshot holds " + std::to_string(snapshot.genomes.size()) +
+                                 " genomes but this run was launched with " +
+                                 std::to_string(evolution_.population().size()));
+    }
+    if (snapshot.trialsPerGenome != config_.trialsPerGenome) {
+        throw WorldSnapshotError("Snapshot ran " + std::to_string(snapshot.trialsPerGenome) +
+                                 " trials per genome but this run was launched with " +
+                                 std::to_string(config_.trialsPerGenome));
+    }
+    if (snapshot.agents.size() != evolution_.population().size() * config_.trialsPerGenome) {
+        throw WorldSnapshotError("Snapshot agent count does not match its own genome count");
+    }
+
+    state_.physics = snapshot.physics;
+    state_.controls.stepsPerGeneration = snapshot.stepsPerGeneration;
+    state_.worlds.requestedAgentsPerWorld = snapshot.requestedAgentsPerWorld;
+
+    evolution_.setPopulation(snapshot.genomes, snapshot.generation);
+    updateWorldLayout();
+    refreshGridForWorldSize();
+
+    // After uploadPopulation, which would otherwise send freshly spawned agents.
+    agents_ = snapshot.agents;
+    state_.statistics.step = std::min(snapshot.step, snapshot.stepsPerGeneration);
+
+    uploadPopulation();
+    state_.statistics.generation = snapshot.generation;
+    state_.agents.generation = snapshot.generation;
+    state_.agents.currentIndex = agentBuffers_.readIndex();
 }
 
 bool SimulationDriver::generationComplete() const {

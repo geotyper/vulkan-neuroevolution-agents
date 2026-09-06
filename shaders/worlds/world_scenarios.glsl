@@ -5,6 +5,7 @@
 #include "worlds/rotating.glsl"
 #include "worlds/random_movement.glsl"
 #include "worlds/forage_home.glsl"
+#include "worlds/scent_relay.glsl"
 
 vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint phase,
                             float worldRadius, ScenarioParameters sp) {
@@ -21,7 +22,10 @@ vec2 scenarioBeaconPosition(uint scenario, Agent agent, uint beaconIndex, uint p
         const uint trial = uint(max(agent.target.z, 0.0));
         return randomMovementScenarioPosition(trial, worldRadius, sp);
     }
-    return forageHomeScenarioPosition(agent, beaconIndex, worldRadius, sp);
+    if (scenario == 4u) {
+        return forageHomeScenarioPosition(agent, beaconIndex, worldRadius, sp);
+    }
+    return scentRelayScenarioPosition(agent, beaconIndex, worldRadius, sp);
 }
 
 vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial) {
@@ -30,6 +34,9 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
     }
     if (scenario == 4u) {
         return forageHomeScenarioColor(beaconIndex);
+    }
+    if (scenario == 5u) {
+        return scentRelayScenarioColor(beaconIndex);
     }
     return stationaryScenarioColor(trial);
 }
@@ -40,7 +47,7 @@ vec3 scenarioBeaconColor(uint scenario, uint beaconIndex, uint phase, uint trial
 // file never enumerates which scenarios have two beacons.
 float scenarioTargetDistance(uint scenario, Agent agent, vec2 position, uint phase,
                              float worldRadius, uint beaconCount, ScenarioParameters sp) {
-    if (scenario == 4u) {
+    if (scenario == 4u || scenario == 5u) {
         const uint targetIndex = agent.internal.y >= 0.5 ? 1u : 0u;
         return length(scenarioBeaconPosition(scenario, agent, targetIndex, phase, worldRadius,
                                              sp) - position);
@@ -58,6 +65,9 @@ float scenarioTargetDistance(uint scenario, Agent agent, vec2 position, uint pha
 vec3 scenarioBodyTint(uint scenario, Agent agent, vec3 bodyColor) {
     if (scenario == 4u) {
         return forageHomeScenarioBodyTint(agent, bodyColor);
+    }
+    if (scenario == 5u) {
+        return scentRelayScenarioBodyTint(agent, bodyColor);
     }
     return bodyColor;
 }

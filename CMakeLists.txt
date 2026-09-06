@@ -139,12 +139,14 @@ add_library(vkneuro_domain STATIC
     src/simulation/CpuSimulation.cpp
     src/evolution/GeneticAlgorithm.cpp
     src/evolution/GenomeArchive.cpp
+    src/simulation/WorldSnapshot.cpp
     src/worlds/WorldScenario.cpp
     src/worlds/scenarios/StationaryScenario.cpp
     src/worlds/scenarios/AlternatingScenario.cpp
     src/worlds/scenarios/RotatingScenario.cpp
     src/worlds/scenarios/RandomMovementScenario.cpp
     src/worlds/scenarios/ForageHomeScenario.cpp
+    src/worlds/scenarios/ScentRelayScenario.cpp
 )
 target_include_directories(vkneuro_domain PUBLIC include)
 vkexp_enable_warnings(vkneuro_domain)
@@ -211,7 +213,8 @@ if(BUILD_TESTING)
         --scenario forage --generations 2 --steps 24 --population 32
         --agents-per-world 8 --quiet
         --save-population ${CMAKE_CURRENT_BINARY_DIR}/headless_population.vkng
-        --save-champion ${CMAKE_CURRENT_BINARY_DIR}/headless_champion.vkng)
+        --save-champion ${CMAKE_CURRENT_BINARY_DIR}/headless_champion.vkng
+        --save-world ${CMAKE_CURRENT_BINARY_DIR}/headless_world.vknw)
     set_tests_properties(vkneuro_headless_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
     add_test(NAME vkneuro_headless_resume COMMAND vkneuro_headless
@@ -219,6 +222,16 @@ if(BUILD_TESTING)
         --agents-per-world 8 --quiet
         --load-population ${CMAKE_CURRENT_BINARY_DIR}/headless_population.vkng)
     set_tests_properties(vkneuro_headless_resume PROPERTIES
+        SKIP_RETURN_CODE 77
+        DEPENDS vkneuro_headless_smoke)
+
+    # No --scenario, no --world-size, no --steps: the snapshot carries the world
+    # it ran in, and a run that needed the command line to restate it would not
+    # be a resume.
+    add_test(NAME vkneuro_headless_resume_world COMMAND vkneuro_headless
+        --generations 1 --population 32 --agents-per-world 8 --quiet
+        --load-world ${CMAKE_CURRENT_BINARY_DIR}/headless_world.vknw)
+    set_tests_properties(vkneuro_headless_resume_world PROPERTIES
         SKIP_RETURN_CODE 77
         DEPENDS vkneuro_headless_smoke)
 

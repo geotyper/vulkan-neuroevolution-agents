@@ -4,6 +4,7 @@
 
 #include "vkexp/compute/HeadlessComputeContext.hpp"
 #include "vkexp/evolution/GenomeArchive.hpp"
+#include "vkexp/simulation/WorldSnapshot.hpp"
 #include "vkexp/simulation/SimulationDriver.hpp"
 #include "vkexp/simulation/SimulationState.hpp"
 #include "vkexp/simulation/Units.hpp"
@@ -53,6 +54,8 @@ struct Options {
     std::string savePopulation;
     std::string saveChampion;
     std::string loadPopulation;
+    std::string saveWorld;
+    std::string loadWorld;
     std::string csvPath;
 };
 
@@ -104,6 +107,9 @@ void printHelp(const char* executable) {
                  "  --energy-drain <x>       battery drained per effort unit (default 0.0008)\n\n"
                  "Persistence:\n"
                  "  --load-population <path> resume from a genome archive\n"
+                 "  --load-world <path>      resume a whole experiment mid-generation\n"
+                 "  --save-world <path>      write the world state after the last "
+                 "generation\n"
                  "  --save-population <path> write the final population\n"
                  "  --save-champion <path>   write the best genome of the final generation\n"
                  "  --csv <path>             append per-generation statistics as CSV\n\n"
@@ -217,6 +223,10 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.saveChampion = next(index, argument);
         } else if (argument == "--load-population") {
             options.loadPopulation = next(index, argument);
+        } else if (argument == "--save-world") {
+            options.saveWorld = next(index, argument);
+        } else if (argument == "--load-world") {
+            options.loadWorld = next(index, argument);
         } else if (argument == "--csv") {
             options.csvPath = next(index, argument);
         } else {
@@ -295,7 +305,25 @@ int run(const Options& options) {
     vkexp::SimulationDriver driver{state, evolution, config};
     driver.createResources(context.physicalDevice(), context.device());
 
-    const vkexp::ScenarioDefinition& scenario = vkexp::scenarioDefinition(options.scenario);
+    // Before the scenario is resolved: a snapshot carries the world it ran in, so
+    // it decides the scenario, the arena and the physics. The command line only
+    // fills in what the file does not cover.
+    if (!options.loadWorld.empty() && !options.loadPopulation.empty()) {
+        fail("--load-world and --load-population both set the population; pass one");
+    }
+    if (!options.loadWorld.empty()) {
+        const vkexp::WorldSnapshot world = vkexp::loadWorldSnapshot(options.loadWorld);
+        driver.restoreSnapshot(world);
+        if (!options.quiet) {
+            std::cout << "Resumed " << world.genomes.size() << " genomes from "
+                      << options.loadWorld << " at generation " << world.generation << ", step "
+                      << world.step << " of " << world.stepsPerGeneration << " ("
+                      << vkexp::scenarioDefinition(world.physics.beaconScenario).name << ")\n";
+        }
+    }
+
+    const vkexp::ScenarioDefinition& scenario =
+        vkexp::scenarioDefinition(state.physics.beaconScenario);
 
     if (!options.loadPopulation.empty()) {
         const vkexp::GenomeArchive archive = vkexp::loadGenomeArchive(options.loadPopulation);
@@ -324,21 +352,22 @@ int run(const Options& options) {
                   << "Scenario:   " << scenario.name << '\n'
                   << "Brain:      " << scenario.brain.inputCount << " -> "
                   << scenario.brain.hiddenCount << " -> " << scenario.brain.outputCount << '\n'
-                  << "Trial:      " << options.stepsPerGeneration << " steps = " << std::fixed
-                  << std::setprecision(1)
-                  << vkexp::units::secondsForSteps(options.stepsPerGeneration,
+                  << "Trial:      " << state.controls.stepsPerGeneration
+                  << " steps = " << std::fixed << std::setprecision(1)
+                  << vkexp::units::secondsForSteps(state.controls.stepsPerGeneration,
                                                    vkexp::units::fixedTimeStep)
                   << " s at " << vkexp::units::simulationRateHz << " Hz\n"
                   << std::setprecision(2) << "World:      " << state.physics.worldRadius * 2.0F
                   << " m across, body "
                   << vkexp::units::metresToCentimetres(vkexp::agentBodyRadius * 2.0F) << " cm\n"
                   << std::defaultfloat << std::setprecision(6)
-                  << "Population: " << options.populationSize << " genomes x "
+                  << "Population: " << driver.evolution().population().size() << " genomes x "
                   << driver.config().trialsPerGenome << " trials = " << state.agents.agentCount
                   << " agents in " << state.worlds.worldCount << " logical worlds\n"
-                  << "Ablations:  agent collisions " << (options.agentCollisions ? "on" : "OFF")
-                  << ", agent light " << (options.agentLight ? "on" : "OFF") << ", trail "
-                  << (options.trailEnabled ? "on" : "OFF") << "\n\n"
+                  << "Ablations:  agent collisions "
+                  << (state.physics.agentCollisionsEnabled ? "on" : "OFF") << ", agent light "
+                  << (state.physics.agentLightEnabled ? "on" : "OFF") << ", trail "
+                  << (state.physics.trailEnabled ? "on" : "OFF") << "\n\n"
                   << "  gen        best      median        mean   arrival\n";
     }
 
@@ -379,6 +408,14 @@ int run(const Options& options) {
         if (!options.quiet) {
             std::cout << "Saved " << population.size() << " genomes to " << options.savePopulation
                       << '\n';
+        }
+    }
+    if (!options.saveWorld.empty()) {
+        // The device is idle here -- the last generation was waited on before it
+        // was scored -- which is what snapshot() requires to read the agents back.
+        vkexp::saveWorldSnapshot(options.saveWorld, driver.snapshot());
+        if (!options.quiet) {
+            std::cout << "Saved the world to " << options.saveWorld << '\n';
         }
     }
     if (!options.saveChampion.empty()) {

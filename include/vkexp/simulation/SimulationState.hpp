@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace vkexp {
@@ -16,6 +17,15 @@ struct SimulationControls {
     bool resetRequested{};
     std::uint32_t stepsPerFrame{4};
     std::uint32_t stepsPerGeneration{900};
+
+    // Snapshot requests, handled the same way as resetRequested: the UI raises a
+    // flag and SimulationModule acts on it between frames, where the device can
+    // be made idle. `snapshotStatus` is what the last attempt did, shown back in
+    // the panel so a failed load is visible rather than silent.
+    std::string snapshotPath{"world.vknw"};
+    std::string snapshotStatus;
+    bool saveRequested{};
+    bool loadRequested{};
 };
 
 struct SimulationStatistics {

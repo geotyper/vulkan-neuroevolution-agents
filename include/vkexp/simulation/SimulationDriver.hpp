@@ -3,6 +3,7 @@
 #include "vkexp/compute/ComputeResources.hpp"
 #include "vkexp/evolution/GeneticAlgorithm.hpp"
 #include "vkexp/simulation/SimulationState.hpp"
+#include "vkexp/simulation/WorldSnapshot.hpp"
 
 #include <array>
 #include <cstdint>
@@ -58,6 +59,15 @@ public:
 
     // Replaces the population, e.g. when resuming from a genome archive.
     void loadPopulation(std::span<const Genome> genomes, std::uint64_t generation);
+
+    // Freezes and restores a whole experiment rather than just its weights.
+    //
+    // Both require the device to be idle: snapshot() reads the agent buffer back
+    // to the host, and restoreSnapshot() overwrites it. Unlike loadPopulation
+    // these do not restart the generation -- an experiment resumes on the step
+    // it was saved on, with the agents where they stood.
+    [[nodiscard]] WorldSnapshot snapshot();
+    void restoreSnapshot(const WorldSnapshot& snapshot);
 
     void updateWorldLayout();
     void refreshGridForWorldSize();

@@ -1,6 +1,7 @@
 #include "vkexp/compute/ComputeResources.hpp"
 #include "vkexp/evolution/GeneticAlgorithm.hpp"
 #include "vkexp/evolution/GenomeArchive.hpp"
+#include "vkexp/simulation/WorldSnapshot.hpp"
 #include "vkexp/neuro/BrainKernel.hpp"
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/profiling/CpuProfiler.hpp"
@@ -709,6 +710,131 @@ void testGenomeArchiveRoundTrip() {
     std::filesystem::remove_all(path.parent_path(), cleanupError);
 }
 
+void testWorldSnapshotRoundTrip() {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "vkexp_snapshot_test" / "world.vknw";
+
+    vkexp::WorldSnapshot snapshot;
+    // Values chosen to be distinguishable from each other and from any default,
+    // and named here by hand rather than through the saver's own field list, so
+    // a field dropped from that list shows up as a wrong value rather than
+    // agreeing with itself.
+    snapshot.physics.worldRadius = 3.75F;
+    snapshot.physics.maximumSpeed = 0.91F;
+    snapshot.physics.trailHalfLife = 11.5F;
+    snapshot.physics.trailCellSize = 0.031F;
+    snapshot.physics.beaconAngularSpeed = 0.77F;
+    snapshot.physics.fitness.trackingReward = 0.42F;
+    snapshot.physics.fitness.energyDrain = 0.0013F;
+    snapshot.physics.worldSize = vkexp::WorldSize::Large;
+    snapshot.physics.worldShape = vkexp::WorldShape::Square;
+    snapshot.physics.beaconScenario = vkexp::BeaconScenario::ScentRelay;
+    snapshot.physics.beaconMotionSeed = 987654U;
+    snapshot.physics.beaconPhase = 3U;
+    snapshot.physics.trailEnabled = false;
+    snapshot.physics.agentLightEnabled = false;
+    snapshot.physics.agentCollisionsEnabled = true;
+
+    snapshot.genomes.resize(4);
+    for (std::size_t index = 0; index < snapshot.genomes.size(); ++index) {
+        for (std::size_t weight = 0; weight < snapshot.genomes[index].weights.size(); ++weight) {
+            snapshot.genomes[index].weights[weight] =
+                std::cos(static_cast<float>(index * 17 + weight) * 0.023F);
+        }
+    }
+    snapshot.agents.resize(8);
+    for (std::size_t index = 0; index < snapshot.agents.size(); ++index) {
+        const auto value = static_cast<float>(index) * 0.125F;
+        snapshot.agents[index].pose = {value, -value, value * 2.0F, vkexp::agentBodyRadius};
+        snapshot.agents[index].motion = {value * 3.0F, value, 0.5F, 1.0F - value * 0.05F};
+        snapshot.agents[index].signal = {value, 1.0F - value, 0.25F, value * 0.5F};
+        snapshot.agents[index].metrics = {value, value + 1.0F, value * 4.0F, 2.0F};
+    }
+    snapshot.generation = 137;
+    snapshot.step = 451;
+    snapshot.stepsPerGeneration = 900;
+    snapshot.requestedAgentsPerWorld = 12;
+    snapshot.trialsPerGenome = 4;
+    snapshot.seed = 0xBADF00DU;
+
+    vkexp::saveWorldSnapshot(path, snapshot);
+    const vkexp::WorldSnapshot loaded = vkexp::loadWorldSnapshot(path);
+
+    check(loaded.generation == 137 && loaded.step == 451, "Snapshot resumes on the saved step");
+    check(loaded.stepsPerGeneration == 900 && loaded.requestedAgentsPerWorld == 12 &&
+              loaded.trialsPerGenome == 4 && loaded.seed == 0xBADF00DU,
+          "Snapshot layout round-trip");
+    check(closeTo(loaded.physics.worldRadius, 3.75F) &&
+              closeTo(loaded.physics.maximumSpeed, 0.91F) &&
+              closeTo(loaded.physics.trailHalfLife, 11.5F) &&
+              closeTo(loaded.physics.trailCellSize, 0.031F) &&
+              closeTo(loaded.physics.beaconAngularSpeed, 0.77F),
+          "Snapshot physics floats round-trip");
+    check(closeTo(loaded.physics.fitness.trackingReward, 0.42F) &&
+              closeTo(loaded.physics.fitness.energyDrain, 0.0013F),
+          "Snapshot fitness weights round-trip");
+    check(loaded.physics.worldSize == vkexp::WorldSize::Large &&
+              loaded.physics.worldShape == vkexp::WorldShape::Square &&
+              loaded.physics.beaconScenario == vkexp::BeaconScenario::ScentRelay &&
+              loaded.physics.beaconMotionSeed == 987654U && loaded.physics.beaconPhase == 3U,
+          "Snapshot world identity round-trip");
+    check(!loaded.physics.trailEnabled && !loaded.physics.agentLightEnabled &&
+              loaded.physics.agentCollisionsEnabled,
+          "Snapshot ablation flags round-trip");
+
+    bool weightsIdentical = loaded.genomes.size() == snapshot.genomes.size();
+    for (std::size_t index = 0; weightsIdentical && index < snapshot.genomes.size(); ++index) {
+        weightsIdentical = loaded.genomes[index].weights == snapshot.genomes[index].weights;
+    }
+    check(weightsIdentical, "Snapshot weights round-trip bit-exactly");
+
+    // The point of a snapshot over an archive: the agents come back where they
+    // stood, not respawned.
+    bool posesIdentical = loaded.agents.size() == snapshot.agents.size();
+    for (std::size_t index = 0; posesIdentical && index < snapshot.agents.size(); ++index) {
+        const vkexp::AgentState& want = snapshot.agents[index];
+        const vkexp::AgentState& got = loaded.agents[index];
+        posesIdentical = closeTo(got.pose.x, want.pose.x) && closeTo(got.pose.y, want.pose.y) &&
+                         closeTo(got.pose.z, want.pose.z) &&
+                         closeTo(got.motion.x, want.motion.x) &&
+                         closeTo(got.motion.w, want.motion.w) &&
+                         closeTo(got.signal.w, want.signal.w) &&
+                         closeTo(got.metrics.z, want.metrics.z);
+    }
+    check(posesIdentical, "Snapshot agent state round-trip");
+
+    const std::filesystem::path corrupted = path.parent_path() / "corrupted.vknw";
+    std::filesystem::copy_file(path, corrupted, std::filesystem::copy_options::overwrite_existing);
+    {
+        std::fstream stream{corrupted, std::ios::binary | std::ios::in | std::ios::out};
+        stream.seekp(0);
+        stream.write("VKNG", 4);
+    }
+    bool rejectedArchive = false;
+    try {
+        (void)vkexp::loadWorldSnapshot(corrupted);
+    } catch (const vkexp::WorldSnapshotError&) {
+        rejectedArchive = true;
+    }
+    // A genome archive and a world snapshot both end in binary weights; loading
+    // one as the other has to fail on the magic rather than half-work.
+    check(rejectedArchive, "Snapshot rejects a genome archive");
+
+    const std::filesystem::path truncated = path.parent_path() / "truncated.vknw";
+    std::filesystem::copy_file(path, truncated, std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::resize_file(truncated, std::filesystem::file_size(truncated) - 24);
+    bool rejectedTruncation = false;
+    try {
+        (void)vkexp::loadWorldSnapshot(truncated);
+    } catch (const vkexp::WorldSnapshotError&) {
+        rejectedTruncation = true;
+    }
+    check(rejectedTruncation, "Snapshot rejects a truncated file");
+
+    std::error_code cleanupError;
+    std::filesystem::remove_all(path.parent_path(), cleanupError);
+}
+
 void testPopulationReload() {
     const vkexp::EvolutionSettings settings{8, 2, 3, 0.5F, 0.1F, 0.2F, 42U};
     vkexp::GeneticAlgorithm evolution{settings};
@@ -809,6 +935,7 @@ int main() {
     testFitnessWeightsAreParameters();
     testSharedScenarioKernel();
     testGenomeArchiveRoundTrip();
+    testWorldSnapshotRoundTrip();
     testPopulationReload();
     testStepParameterPacking();
     testResolvedStepSettings();

@@ -4,6 +4,7 @@
 #include "vkexp/worlds/scenarios/ForageHomeScenario.hpp"
 #include "vkexp/worlds/scenarios/RandomMovementScenario.hpp"
 #include "vkexp/worlds/scenarios/RotatingScenario.hpp"
+#include "vkexp/worlds/scenarios/ScentRelayScenario.hpp"
 #include "vkexp/worlds/scenarios/StationaryScenario.hpp"
 
 #include <algorithm>
@@ -24,7 +25,7 @@ const std::array<const ScenarioDefinition*, beaconScenarioCount>& registry() {
         const std::array<const ScenarioDefinition*, beaconScenarioCount> entries{
             &worlds::stationary::definition(), &worlds::alternating::definition(),
             &worlds::rotating::definition(), &worlds::random_movement::definition(),
-            &worlds::forage_home::definition()};
+            &worlds::forage_home::definition(), &worlds::scent_relay::definition()};
         // A registry out of order would silently run the wrong world rules, so
         // the mismatch has to be fatal rather than merely wrong.
         for (std::size_t index = 0; index < entries.size(); ++index) {
