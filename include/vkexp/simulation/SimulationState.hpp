@@ -72,6 +72,11 @@ struct SimulationDisplay {
     // field really is. Both are worth having in front of you, so this stays a
     // switch rather than a decision.
     bool roundTrailMarks{true};
+    // Multiplies the arena fill and the ground outside it, and nothing else: a
+    // dark background is what makes a faint trail and a low-intensity signal
+    // readable, and both are already near the bottom of the range. 1 is the
+    // palette as designed and 0 is black, so the control only ever darkens.
+    float backgroundBrightness{1.0F};
 };
 
 struct SimulationWorlds {

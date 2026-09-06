@@ -30,7 +30,7 @@ layout(push_constant) uniform DrawParameters {
     float trailRenderWidth;
     float trailCellSize;
     uint trailRoundMarks;
-    uint reserved0;
+    float backgroundBrightness;
     ScenarioParameters scenario;
 } params;
 
@@ -155,7 +155,7 @@ void main() {
                                           vec2(-r, -r), vec2(r, r), vec2(-r, r));
             world = square[gl_VertexIndex];
         }
-        color = vec4(0.022, 0.034, 0.055, params.opacity);
+        color = vec4(vec3(0.022, 0.034, 0.055) * params.backgroundBrightness, params.opacity);
     } else {
         const vec2 heading[3] = vec2[](vec2(1.42, 0.0), vec2(0.25, 0.38),
                                        vec2(0.25, -0.38));

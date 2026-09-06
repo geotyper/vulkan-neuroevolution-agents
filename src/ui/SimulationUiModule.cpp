@@ -385,6 +385,10 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
     ImGui::Checkbox("Agents", &state_.display.agents);
     ImGui::SameLine();
     ImGui::Checkbox("Beacons", &state_.display.beacons);
+    ImGui::SliderFloat("Background", &state_.display.backgroundBrightness, 0.0F, 1.0F, "%.2f");
+    ImGui::SetItemTooltip("Dims the arena and the ground around it. Trails, agents and beacons "
+                          "are untouched, so pulling this down is how a faint mark becomes "
+                          "readable. 1 is the palette as designed; it only darkens.");
     ImGui::Checkbox("Round trail marks", &state_.display.roundTrailMarks);
     ImGui::SetItemTooltip("Off draws each cell as a square, which tiles exactly and shows the "
                           "grid the field actually is.");

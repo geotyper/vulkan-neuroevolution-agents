@@ -27,7 +27,7 @@ struct DrawParameters {
     float trailRenderWidth{};
     float trailCellSize{};
     std::uint32_t trailRoundMarks{};
-    std::uint32_t reserved0{};
+    float backgroundBrightness{};
     ScenarioParameterBlock scenario;
 };
 // Still inside the 128 bytes Vulkan guarantees for maxPushConstantsSize; the
@@ -226,7 +226,7 @@ void AgentRenderer::draw(const VkCommandBuffer commands, const float scaleX, con
         state_.physics.trailRenderWidth,
         state_.physics.trailCellSize,
         state_.display.roundTrailMarks ? 1U : 0U,
-        0U,
+        state_.display.backgroundBrightness,
         scenarioDefinition(settings.beaconScenario).gpuParameters(settings)};
     vkCmdPushConstants(commands, pipelineLayout_.get(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(parameters), &parameters);
@@ -243,7 +243,11 @@ void AgentRenderer::onRender(AppContext& context, const FrameInfo&) {
                                                    : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         targetLayout_ == VK_IMAGE_LAYOUT_UNDEFINED ? 0 : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-    constexpr VkClearColorValue clear{{0.001F, 0.002F, 0.005F, 1.0F}};
+    // The ground outside the arena, dimmed by the same control as the arena fill
+    // so the two do not drift apart as it is pulled down.
+    const float background = std::clamp(state_.display.backgroundBrightness, 0.0F, 1.0F);
+    const VkClearColorValue clear{
+        {0.001F * background, 0.002F * background, 0.005F * background, 1.0F}};
     VkRenderingAttachmentInfo attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     attachment.imageView = target_.view();
     attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
