@@ -8,6 +8,7 @@
 #include "worlds/steps/two_gaps.glsl"
 #include "worlds/steps/puck_push.glsl"
 #include "worlds/steps/gate_plate.glsl"
+#include "worlds/steps/chain.glsl"
 
 // GLSL has no function pointers, so the C++ side's function-pointer hooks become
 // one dispatcher. Keeping it here is the point: agent_step.comp stays free of
@@ -38,6 +39,8 @@ void scenarioAfterStep(inout Agent agent, float distance) {
         puckPushScenarioAfterStep(agent);
     } else if (params.beaconScenario == 10u) {
         gatePlateScenarioAfterStep(agent, distance);
+    } else if (params.beaconScenario == 11u) {
+        chainScenarioAfterStep(agent);
     } else if (params.beaconScenario == 2u || params.beaconScenario == 3u) {
         trackingScenarioAfterStep(agent, distance);
     } else {

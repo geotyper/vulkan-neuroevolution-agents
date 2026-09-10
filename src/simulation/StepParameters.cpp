@@ -1,4 +1,5 @@
 #include "vkexp/simulation/StepParameters.hpp"
+#include <algorithm>
 
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/simulation/TrailKernel.hpp"
@@ -59,7 +60,15 @@ GpuStepParameters packStepParameters(const SimulationStep& resolved,
             scenario.puck ? 1U : 0U,
             brain.packedLayers(),
             static_cast<std::uint32_t>(brain.weightCount()),
-            resolved.minimumSpeed};
+            resolved.minimumSpeed,
+            // Body diameters into metres, and clamped to what the grid sweep can
+            // actually see: the loop reaches lightSensorRange, so a larger radius
+            // would quietly count only what fell inside it and report a number
+            // that meant something else.
+            scenario.tunables.chainNeighbours
+                ? std::min(resolved.chainNeighbourBodies * agentBodyDiameter,
+                           resolved.lightSensorRange)
+                : 0.0F};
 }
 
 } // namespace vkexp

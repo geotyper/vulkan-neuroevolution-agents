@@ -297,6 +297,70 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                               "scores, so somebody has to stay behind for nothing, and whether "
                               "that can be selected for is what group fitness sharing is about.");
     }
+    if (scenario.tunables.chainNeighbours) {
+        // The radius is in body diameters and not metres, because the question
+        // the world asks is "how close, in units of yourself". 1.0 is touching.
+        if (ImGui::SliderFloat("Neighbour radius (bodies)", &state_.physics.chainNeighbourBodies,
+                               1.0F, 8.0F, "%.2f")) {
+            state_.controls.resetRequested = true;
+        }
+        const float radiusMetres = state_.physics.chainNeighbourBodies * agentBodyDiameter;
+        ImGui::SetItemTooltip("%.1f cm between centres. 1.0 is touching, so anything above it is "
+                              "a gap measured in bodies.",
+                              static_cast<double>(radiusMetres * 100.0F));
+        if (radiusMetres > state_.physics.lightSensorRange) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4{1.0F, 0.75F, 0.25F, 1.0F}, "clamped");
+            ImGui::SetItemTooltip("The grid sweep that takes the count only reaches the light "
+                                  "range, %.2f m, so a larger radius would count what fell inside "
+                                  "it and report that as the answer. It is clamped instead. Raise "
+                                  "the light range to make this radius mean what it says.",
+                                  static_cast<double>(state_.physics.lightSensorRange));
+        }
+        int band = static_cast<int>(state_.physics.chainRewardBand);
+        if (ImGui::SliderInt("Reward band", &band, 1, 6)) {
+            state_.physics.chainRewardBand = static_cast<std::uint32_t>(band);
+            state_.controls.resetRequested = true;
+        }
+        ImGui::SetItemTooltip(
+            "Neighbours worth a point each, after which the reward stops rising.\n\nThis is what "
+            "separates a chain from a heap of pairs. At 1 the rule is flat -- two agents stuck "
+            "together score as well as a column, so there is nothing to gain by lining up. At 2 "
+            "the inside of a chain scores above its ends, which is the same statement as \"be in "
+            "a line\". 1 is the control: if it chains as well as 2, the band is not what is doing "
+            "the work.");
+        int limit = static_cast<int>(state_.physics.chainCrowdLimit);
+        if (ImGui::SliderInt("Crowd limit", &limit, 1, 8)) {
+            state_.physics.chainCrowdLimit = static_cast<std::uint32_t>(limit);
+            state_.controls.resetRequested = true;
+        }
+        ImGui::SetItemTooltip("Neighbours past this cost rather than pay. Three this close is "
+                              "already a triangle, and a triangle is how a heap starts.");
+        if (state_.physics.chainRewardBand > state_.physics.chainCrowdLimit) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4{1.0F, 0.75F, 0.25F, 1.0F}, "past the limit");
+            ImGui::SetItemTooltip("The band reaches above the crowd limit, so the last neighbours "
+                                  "it rewards are also being penalised. That is a world, but "
+                                  "probably not the one you meant.");
+        }
+        ImGui::SliderFloat("Crowd penalty", &state_.physics.chainCrowdPenalty, 0.0F, 4.0F, "%.2f");
+        ImGui::SetItemTooltip("Charged per neighbour past the limit, against a reward of one per "
+                              "neighbour up to the band. At 0 crowding is merely not paid for "
+                              "rather than punished.");
+        if (state_.physics.minimumSpeed <= 0.0F) {
+            ImGui::TextColored(ImVec4{1.0F, 0.75F, 0.25F, 1.0F},
+                               "Chain can be solved by standing still");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Set a floor")) {
+                state_.physics.minimumSpeed = 0.20F;
+                state_.controls.resetRequested = true;
+            }
+            ImGui::SetItemTooltip("With no speed floor the best answer is to stop in a good "
+                                  "arrangement and never move again, which makes this a packing "
+                                  "puzzle rather than a formation task. The floor is a physics "
+                                  "slider, above.");
+        }
+    }
     if (scenario.tunables.blockedDoorPerGeneration) {
         if (ImGui::Checkbox("Dead end changes by generation",
                             &state_.physics.blockedDoorPerGeneration)) {

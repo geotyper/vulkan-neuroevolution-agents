@@ -166,6 +166,15 @@ void main() {
     agent.agentTouch1 = vec4(0.0);
     const ivec2 centerCell = gridCoordinate(agent.pose.xy);
     const int cellReach = int(ceil(params.lightSensorRange / params.gridCellSize));
+    // How many other agents are within chainNeighbourRadius. Taken here rather
+    // than in a pass of its own because this loop already visits exactly the
+    // pairs the question is about, so the count costs one comparison and no
+    // second sweep of the grid.
+    //
+    // It is GPU-only, like the trail field and the gate's reduction: there is no
+    // neighbour loop on the CPU side at all, so a world scored on this number
+    // cannot appear in the parity test. See ChainScenario.cpp.
+    uint neighbourCount = 0;
     for (int offsetY = -cellReach; offsetY <= cellReach; ++offsetY) {
         for (int offsetX = -cellReach; offsetX <= cellReach; ++offsetX) {
             const ivec2 cell = centerCell + ivec2(offsetX, offsetY);
@@ -209,6 +218,11 @@ void main() {
                         }
                     }
 
+                    if (params.chainNeighbourRadius > 0.0 &&
+                        distanceToOther <= params.chainNeighbourRadius) {
+                        ++neighbourCount;
+                    }
+
                     const float contactDistance = agent.pose.w + other.pose.w;
                     if (params.agentCollisionsEnabled != 0 &&
                         distanceToOther < contactDistance) {
@@ -232,6 +246,14 @@ void main() {
                 otherId = gridNext[otherId];
             }
         }
+    }
+
+    // Published before the brain runs, so the scenario's after-step hook reads
+    // this step's count rather than the previous one's. Left untouched when no
+    // world asked, because target.w carries the puck's spin in the world that
+    // has one.
+    if (params.chainNeighbourRadius > 0.0) {
+        agent.target.w = float(neighbourCount);
     }
 
     // Every index below comes from the shared preset, exactly as Sensors.cpp

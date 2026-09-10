@@ -70,6 +70,9 @@ struct StepParameters {
     // The speed no body may fall below. Zero is off, which is every world but
     // the chain one.
     float minimumSpeed;
+    // Metres. Zero means no world asked for the count, and the step loop then
+    // does not take it.
+    float chainNeighbourRadius;
 };
 
 #endif

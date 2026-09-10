@@ -78,6 +78,13 @@ struct ScenarioTunables {
     // because the result is then a world with no route to its objective and
     // nothing about the numbers says so.
     bool needsTrail{};
+    // Whether this world wants the neighbour count the step loop can produce.
+    // It is not free -- one comparison per agent pair already being walked -- and
+    // more to the point it is GPU-only state, like the trail field and the gate's
+    // reduction over the grid, so a world that asks for it cannot be checked by
+    // the CPU/GPU parity test. Worlds that do not ask pay nothing and stay
+    // checkable.
+    bool chainNeighbours{};
 };
 
 // The complete contract of one experiment. Everything the simulation, the

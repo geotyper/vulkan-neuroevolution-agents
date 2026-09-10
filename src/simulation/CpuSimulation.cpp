@@ -191,7 +191,13 @@ void stepAgentCpu(AgentState& agent,
     const float distance = nearestBeaconDistance(agent, settings);
     agent.metrics.y = std::min(agent.metrics.y, distance);
     agent.metrics.z += motorCost + signalCost;
-    scenario.afterStep(agent, settings, distance);
+    // Null-checked the same way beforeStep already is. A world may legitimately
+    // have no per-agent hook on this side: the chain world scores from the
+    // neighbour count, which only the step shader can take, so its accumulation
+    // lives there and a stub here would compute zero and read as agreement.
+    if (scenario.afterStep != nullptr) {
+        scenario.afterStep(agent, settings, distance);
+    }
 }
 
 float agentFitness(const AgentState& agent, const BeaconScenario scenario,

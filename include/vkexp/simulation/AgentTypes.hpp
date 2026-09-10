@@ -75,9 +75,10 @@ enum class BeaconScenario : std::uint32_t {
     TwoGaps = 8,
     PuckPush = 9,
     GatePlate = 10,
+    Chain = 11,
 };
 
-inline constexpr std::size_t beaconScenarioCount = 11;
+inline constexpr std::size_t beaconScenarioCount = 12;
 
 // Body radius in metres: a 4.4 cm disc, roughly an e-puck-class table robot.
 // Stored per agent in `pose.w`, so a scenario may vary it; this is the spawn
@@ -611,6 +612,10 @@ struct alignas(16) GpuStepParameters {
     // integrate the physics it always did -- which is the property that makes
     // appending safe here and slotting in not.
     float minimumSpeed{};
+    // How close another agent has to be to be counted as a neighbour, in metres,
+    // already resolved from body diameters and already clamped to what the grid
+    // sweep reaches. Zero means no world asked, and the count is then not taken.
+    float chainNeighbourRadius{};
 };
 
 static_assert(sizeof(GpuStepParameters) == 272);

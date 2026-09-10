@@ -57,6 +57,10 @@ struct Options {
     std::optional<float> lightSensorRange;
     std::optional<float> maximumSpeed;
     std::optional<float> minimumSpeed;
+    std::optional<float> chainNeighbourBodies;
+    std::optional<std::uint32_t> chainRewardBand;
+    std::optional<std::uint32_t> chainCrowdLimit;
+    std::optional<float> chainCrowdPenalty;
     std::optional<float> trailDepositRate;
     std::optional<float> beaconTrailDepositRate;
     std::optional<float> trailHalfLife;
@@ -109,6 +113,15 @@ void printHelp(const char* executable) {
                  "  --min-speed <x>          speed a body may never drop below, m/s. 0 is off\n"
                  "                           and off is the default; above 0 an agent cannot\n"
                  "                           stand still, only steer\n"
+                 "  --chain-radius <x>       chain world: how close another agent counts as a\n"
+                 "                           neighbour, in body diameters between centres\n"
+                 "                           (default 1.5; 1.0 is touching). Clamped to the\n"
+                 "                           light range, which is as far as the count sees\n"
+                 "  --chain-band <n>         neighbours worth a point each before the reward\n"
+                 "                           stops rising (default 2). 1 is the flat rule and\n"
+                 "                           the control for whether the band does the work\n"
+                 "  --chain-limit <n>        neighbours past this are penalised (default 3)\n"
+                 "  --chain-penalty <x>      charged per neighbour past the limit (default 1)\n"
                  "  --locomotion <name>      how much the body carries: robot|rover|default|\n"
                  "                           glider|fish. Sets thrust, turn and the two drags\n"
                  "                           and nothing else, so every style has the same top\n"
@@ -376,6 +389,14 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.maximumSpeed = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--min-speed") {
             options.minimumSpeed = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--chain-radius") {
+            options.chainNeighbourBodies = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--chain-band") {
+            options.chainRewardBand = parseNumber<std::uint32_t>(next(index, argument), argument);
+        } else if (argument == "--chain-limit") {
+            options.chainCrowdLimit = parseNumber<std::uint32_t>(next(index, argument), argument);
+        } else if (argument == "--chain-penalty") {
+            options.chainCrowdPenalty = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-trail") {
             options.trailMode = vkexp::TrailMode::Off;
         } else if (argument == "--trail") {
@@ -501,6 +522,18 @@ int run(const Options& options) {
     }
     if (options.minimumSpeed) {
         state.physics.minimumSpeed = *options.minimumSpeed;
+    }
+    if (options.chainNeighbourBodies) {
+        state.physics.chainNeighbourBodies = *options.chainNeighbourBodies;
+    }
+    if (options.chainRewardBand) {
+        state.physics.chainRewardBand = *options.chainRewardBand;
+    }
+    if (options.chainCrowdLimit) {
+        state.physics.chainCrowdLimit = *options.chainCrowdLimit;
+    }
+    if (options.chainCrowdPenalty) {
+        state.physics.chainCrowdPenalty = *options.chainCrowdPenalty;
     }
     if (options.maximumSpeed) {
         state.physics.maximumSpeed = *options.maximumSpeed;

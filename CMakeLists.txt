@@ -149,6 +149,7 @@ add_library(vkneuro_domain STATIC
     src/worlds/scenarios/StationaryScenario.cpp
     src/worlds/scenarios/TwoDoorsScenario.cpp
     src/worlds/scenarios/TwoGapsScenario.cpp
+    src/worlds/scenarios/ChainScenario.cpp
     src/worlds/scenarios/GatePlateScenario.cpp
     src/worlds/scenarios/PuckPushScenario.cpp
     src/worlds/scenarios/AlternatingScenario.cpp
@@ -287,6 +288,16 @@ if(BUILD_TESTING)
     vkexp_enable_warnings(vkneuro_puck_smoke)
     add_test(NAME vkneuro_puck_smoke COMMAND vkneuro_puck_smoke)
     set_tests_properties(vkneuro_puck_smoke PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(vkneuro_chain_smoke tests/chain_smoke.cpp)
+    add_dependencies(vkneuro_chain_smoke vkexp_shaders)
+    target_link_libraries(vkneuro_chain_smoke PRIVATE vkneuro_simulation)
+    target_compile_definitions(vkneuro_chain_smoke PRIVATE
+        VKEXP_SHADER_DIR="${SHADER_BINARY_DIR}"
+    )
+    vkexp_enable_warnings(vkneuro_chain_smoke)
+    add_test(NAME vkneuro_chain_smoke COMMAND vkneuro_chain_smoke)
+    set_tests_properties(vkneuro_chain_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(vkneuro_reconfiguration_smoke tests/reconfiguration_smoke.cpp)
     add_dependencies(vkneuro_reconfiguration_smoke vkexp_shaders)

@@ -8,6 +8,7 @@
 #include "vkexp/worlds/scenarios/ShuttleScenario.hpp"
 #include "vkexp/worlds/scenarios/StationaryScenario.hpp"
 #include "vkexp/worlds/scenarios/TwoDoorsScenario.hpp"
+#include "vkexp/worlds/scenarios/ChainScenario.hpp"
 #include "vkexp/worlds/scenarios/GatePlateScenario.hpp"
 #include "vkexp/worlds/scenarios/PuckPushScenario.hpp"
 #include "vkexp/worlds/scenarios/TwoGapsScenario.hpp"
@@ -33,7 +34,7 @@ const std::array<const ScenarioDefinition*, beaconScenarioCount>& registry() {
             &worlds::forage_home::definition(), &worlds::scent_relay::definition(),
             &worlds::two_doors::definition(), &worlds::shuttle::definition(),
             &worlds::two_gaps::definition(), &worlds::puck_push::definition(),
-            &worlds::gate_plate::definition()};
+            &worlds::gate_plate::definition(), &worlds::chain::definition()};
         // A registry out of order would silently run the wrong world rules, so
         // the mismatch has to be fatal rather than merely wrong.
         for (std::size_t index = 0; index < entries.size(); ++index) {
@@ -45,15 +46,21 @@ const std::array<const ScenarioDefinition*, beaconScenarioCount>& registry() {
                 entries[index]->fitness == nullptr ||
                 entries[index]->achievedObjectives == nullptr ||
                 entries[index]->gpuParameters == nullptr ||
-                entries[index]->objectivesPerAgent == 0 || entries[index]->beaconCount == 0 ||
+                entries[index]->objectivesPerAgent == 0 ||
+                // Zero beacons is a world, not a mistake: the chain world lights
+                // nothing, so the only thing a receptor can see is another agent.
+                // What has to hold is that the count matches what `beacons`
+                // reports, and that is asserted per scenario in the unit tests.
                 entries[index]->beaconCount > std::tuple_size_v<decltype(ActiveBeacons::values)> ||
                 (entries[index]->obstacleCount > 0) != (entries[index]->obstacle != nullptr) ||
                 // A world scores from something. Either it has a step hook that
                 // notices arrivals, or it has a puck, whose level is latched by
-                // the puck pass and mirrored onto every agent in the world.
-                // Requiring an afterStep of every scenario was right until one
-                // of them kept its score somewhere no per-agent hook could see.
-                (entries[index]->afterStep == nullptr && !entries[index]->puck)) {
+                // the puck pass and mirrored onto every agent in the world, or it
+                // scores from the neighbour count, which is laid down by the step
+                // shader for the same reason: it is a fact about the world that
+                // no per-agent CPU hook can see.
+                (entries[index]->afterStep == nullptr && !entries[index]->puck &&
+                 !entries[index]->tunables.chainNeighbours)) {
                 throw std::logic_error(std::string{"Scenario '"} + entries[index]->name +
                                        "' does not implement the full scenario contract");
             }
