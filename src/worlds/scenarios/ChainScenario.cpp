@@ -7,9 +7,9 @@
 
 // The chain world. There is nothing to find here: no beacon, no cargo, no door.
 // The only thing in the arena is the other agents, and the only thing scored is
-// how many of them you are next to.
+// who is beside you.
 //
-// Two rules make that a chain rather than a heap.
+// Three rules make that a chain rather than a heap.
 //
 // The first is the speed floor, which is physics rather than scenery and lives
 // with the drags. Without it the best answer is to stop in a good arrangement
@@ -26,10 +26,19 @@
 // the crowd limit it turns into a penalty, because three neighbours this close
 // is already a triangle and a triangle is how a heap starts.
 //
-// Both numbers are sliders, because which of them produces a chain is exactly
-// what this world is for finding out. A band of one is the flat rule, and it is
-// worth running as the control: if it chains as well as a band of two, the band
-// is not what is doing the work.
+// The third is that the reward is gated on where the neighbours are, and this is
+// the one the first runs of this world were missing. A count cannot tell a chain
+// from a ring: the middle of a line has two neighbours and so does a corner of an
+// equilateral triangle, and given two arrangements worth the same, selection
+// takes the one that is easier to hold. That is the triangle, and the first runs
+// produced exactly that -- pairs and triples orbiting one another, no chains at
+// any length. Summing the unit vectors to the neighbours separates them: zero
+// from the middle of a line, 1.73 from a triangle. See chainStraightWeight.
+//
+// Every number here is a slider, because which of them produces a chain is
+// exactly what this world is for finding out. A band of one is the flat count
+// rule and a straight weight of zero is the ungated one; both are worth running
+// as controls.
 //
 // -- Why this world is not in the parity test --
 //
@@ -82,6 +91,7 @@ float targetDistance(const AgentState&, const SimulationStep&) { return 0.0F; }
 ScenarioParameterBlock gpuParameters(const SimulationStep& settings) {
     ScenarioParameterBlock block{};
     block.floats0.x = settings.chainCrowdPenalty;
+    block.floats0.y = settings.chainStraightWeight;
     block.integers[0] = settings.chainRewardBand;
     block.integers[1] = settings.chainCrowdLimit;
     return block;
@@ -96,9 +106,12 @@ static_assert(brain.fitsCapacity());
 
 } // namespace
 
-float stepScore(const std::uint32_t neighbours, const std::uint32_t rewardBand,
-                const std::uint32_t crowdLimit, const float crowdPenalty) {
-    const auto reward = static_cast<float>(std::min(neighbours, rewardBand));
+float stepScore(const std::uint32_t neighbours, const float lopsidedness,
+                const std::uint32_t rewardBand, const std::uint32_t crowdLimit,
+                const float crowdPenalty, const float straightWeight) {
+    const float straight = 1.0F - std::clamp(lopsidedness, 0.0F, 1.0F);
+    const float reward = static_cast<float>(std::min(neighbours, rewardBand)) *
+                         (straightWeight * straight + (1.0F - straightWeight));
     const auto crowd =
         static_cast<float>(neighbours > crowdLimit ? neighbours - crowdLimit : 0U);
     return reward - crowdPenalty * crowd;

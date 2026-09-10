@@ -436,6 +436,27 @@ struct SimulationStep {
     std::uint32_t chainRewardBand{2};
     std::uint32_t chainCrowdLimit{3};
     float chainCrowdPenalty{1.0F};
+    // How much of the reward is gated on the neighbours being on opposite sides
+    // rather than merely being there.
+    //
+    // A count alone cannot tell a chain from a ring: an agent in the middle of a
+    // line has two neighbours and so does one in an equilateral triangle, and of
+    // two arrangements that score the same, selection finds the one that is
+    // easier to hold. That is the triangle -- rotationally stable, entirely
+    // local, no ends to occupy -- which is why the first runs of this world
+    // produced pairs and triples orbiting each other and no chains at all.
+    //
+    // What separates them is where the neighbours are, not how many. Summing the
+    // unit vectors to them gives 0 from the middle of a line and 1.73 from a
+    // triangle, so 1 - |sum|/count is "how far between them you are": 1.0 in a
+    // chain, 0.13 in a triangle, 0 with a single neighbour.
+    //
+    // At 0 this is the plain count rule, which is the control. At 1 the reward is
+    // fully gated, and a first neighbour is then worth nothing at all -- which
+    // removes the gradient that gets a scattered population together in the first
+    // place. The default keeps that gradient while making the inside of a chain
+    // worth about twice a triangle member.
+    float chainStraightWeight{0.6F};
     // Trail field. The deposit is per second and the lifetime is a half-life in
     // seconds, so neither becomes a function of the step rate.
     // Deposit rates come from what a single pass has to leave behind, not from a

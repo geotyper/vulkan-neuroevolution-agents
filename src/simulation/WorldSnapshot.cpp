@@ -72,6 +72,7 @@ template <typename Visit> void visitPhysics(SimulationStep& physics, Visit&& vis
     visit(physics.gateLatchSeconds);
     visit(physics.chainNeighbourBodies);
     visit(physics.chainCrowdPenalty);
+    visit(physics.chainStraightWeight);
     visit(physics.trailDepositRate);
     visit(physics.trailHalfLife);
     visit(physics.beaconTrailDepositRate);
@@ -85,7 +86,7 @@ template <typename Visit> void visitPhysics(SimulationStep& physics, Visit&& vis
     visit(physics.fitness.groupSharing);
 }
 
-constexpr std::uint32_t physicsFloatCount = 43;
+constexpr std::uint32_t physicsFloatCount = 44;
 
 // visitPhysics and PhysicsIntegers together have to name every field of
 // SimulationStep, and this is what notices when a new tunable is added and
@@ -98,7 +99,7 @@ constexpr std::uint32_t physicsFloatCount = 43;
 // after it. A new bool is therefore
 // covered by testWorldSnapshotRoundTrip naming it in both polarities, which is
 // the check that does not depend on the size changing.
-static_assert(sizeof(SimulationStep) == 232,
+static_assert(sizeof(SimulationStep) == 236,
               "SimulationStep changed shape -- update the world snapshot field lists");
 
 // The handful of fields that are not floats, kept apart so the float list above

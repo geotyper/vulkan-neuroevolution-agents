@@ -33,6 +33,7 @@
 #include "vkexp/worlds/scenarios/ChainScenario.hpp"
 
 #include <cmath>
+#include <numbers>
 #include <cstdlib>
 #include <exception>
 #include <iostream>
@@ -56,9 +57,18 @@ bool closeTo(const float left, const float right, const float tolerance = 1.0e-4
 // The same question the shader answers, asked without the grid: every other
 // agent in the same logical world, inside the radius. This is the reference the
 // device is checked against, so it is deliberately the slow obvious loop.
-std::uint32_t neighboursByBruteForce(const std::vector<vkexp::AgentState>& agents,
-                                     const std::size_t self, const float radius) {
-    std::uint32_t count = 0;
+struct Surroundings {
+    std::uint32_t count{};
+    // Magnitude of the mean unit vector to those neighbours: 0 when they balance
+    // and 1 when they all lie one way.
+    float lopsidedness{};
+};
+
+Surroundings surroundingsByBruteForce(const std::vector<vkexp::AgentState>& agents,
+                                      const std::size_t self, const float radius) {
+    Surroundings result{};
+    float sumX = 0.0F;
+    float sumY = 0.0F;
     for (std::size_t other = 0; other < agents.size(); ++other) {
         if (other == self) {
             continue;
@@ -68,11 +78,22 @@ std::uint32_t neighboursByBruteForce(const std::vector<vkexp::AgentState>& agent
         }
         const float dx = agents[other].pose.x - agents[self].pose.x;
         const float dy = agents[other].pose.y - agents[self].pose.y;
-        if (std::hypot(dx, dy) <= radius) {
-            ++count;
+        const float distance = std::hypot(dx, dy);
+        if (distance <= radius) {
+            ++result.count;
+            // The shader takes its direction the same way when two agents sit on
+            // top of each other, so the degenerate case is reproduced rather than
+            // avoided: the staged rim pile is exactly that.
+            if (distance > 1.0e-4F) {
+                sumX += dx / distance;
+                sumY += dy / distance;
+            }
         }
     }
-    return count;
+    if (result.count > 0) {
+        result.lopsidedness = std::hypot(sumX, sumY) / static_cast<float>(result.count);
+    }
+    return result;
 }
 
 int run() {
@@ -107,19 +128,59 @@ int run() {
         staged.agents.empty() ? 0U
                               : static_cast<std::uint32_t>(std::max(staged.agents[0].penalties.w,
                                                                     0.0F) + 0.5F);
+    // And, well away from it, an equilateral triangle at the same spacing. Its
+    // corners have the same neighbour count as the middle of the line -- two --
+    // which is exactly the pair the count alone cannot tell apart, and exactly
+    // what the first runs of this world settled into. It is here so the test can
+    // say which of the two the rule prefers.
+    constexpr float triangleCentreX = 0.5F;
+    constexpr float triangleCentreY = 0.5F;
+    std::vector<std::size_t> lineAgents;
+    std::vector<std::size_t> triangleAgents;
     std::size_t placed = 0;
-    for (vkexp::AgentState& agent : staged.agents) {
+    std::size_t corners = 0;
+    bool isolationProbePlaced = false;
+    std::vector<std::size_t> ringRank(staged.agents.size() + 1, 0);
+    for (std::size_t index = 0; index < staged.agents.size(); ++index) {
+        vkexp::AgentState& agent = staged.agents[index];
         const auto world = static_cast<std::uint32_t>(std::max(agent.penalties.w, 0.0F) + 0.5F);
         if (world == firstWorld && placed < 6) {
             agent.pose.x = -1.0F + static_cast<float>(placed) * spacing;
             agent.pose.y = 0.0F;
+            lineAgents.push_back(index);
             ++placed;
+        } else if (world == firstWorld && corners < 3) {
+            // Circumradius of an equilateral triangle of side `spacing`.
+            const float circumradius = spacing / std::sqrt(3.0F);
+            const float angle = static_cast<float>(corners) * 2.0F *
+                                std::numbers::pi_v<float> / 3.0F;
+            agent.pose.x = triangleCentreX + std::cos(angle) * circumradius;
+            agent.pose.y = triangleCentreY + std::sin(angle) * circumradius;
+            triangleAgents.push_back(index);
+            ++corners;
+        } else if (world != firstWorld && !isolationProbePlaced) {
+            // One agent from a different logical world, dropped into the middle
+            // of the line. Worlds share these metres, so if the sweep did not
+            // filter by world the line's counts would rise by one here and
+            // nowhere else. Placed rather than assumed: without it, world
+            // isolation is only tested by agents that happen to be far away,
+            // which tests nothing.
+            agent.pose.x = -1.0F + 2.0F * spacing;
+            agent.pose.y = 0.0F;
+            isolationProbePlaced = true;
         } else {
-            // Everyone else parked far away along the rim, so the line's counts
-            // have one explanation. Agents in other logical worlds share these
-            // metres; if the sweep leaked across worlds the line would see them.
-            agent.pose.x = state.physics.worldRadius - vkexp::agentBodyRadius;
-            agent.pose.y = state.physics.worldRadius - vkexp::agentBodyRadius;
+            // Everyone else on a ring, spaced by their position within their own
+            // world rather than piled on one point. A pile is a degenerate case
+            // -- zero distance has no direction, and the shader and this test
+            // would have to agree on an arbitrary fallback -- and it says nothing
+            // the ring does not.
+            const std::size_t rank = ringRank[world]++;
+            const float angle = static_cast<float>(rank) * 2.0F *
+                                std::numbers::pi_v<float> /
+                                static_cast<float>(state.worlds.agentsPerWorld);
+            const float ringRadius = state.physics.worldRadius * 0.6F;
+            agent.pose.x = std::cos(angle) * ringRadius;
+            agent.pose.y = std::sin(angle) * ringRadius;
         }
         agent.pose.z = 0.0F;
         agent.motion = {0.0F, 0.0F, 0.0F, 1.0F};
@@ -128,7 +189,8 @@ int run() {
         agent.penalties.x = 0.0F;
         agent.penalties.y = 0.0F;
     }
-    require(placed == 6, "the staged line got the agents it asked for");
+    require(placed == 6 && corners == 3, "the staged line and triangle got their agents");
+    require(isolationProbePlaced, "a neighbouring world has an agent sitting inside the line");
     staged.step = 0;
     driver.restoreSnapshot(staged);
 
@@ -142,34 +204,55 @@ int run() {
     require(after.size() == before.size(), "the staged run keeps its population");
 
     std::uint32_t interior = 0;
+    std::vector<float> scores(after.size(), 0.0F);
     for (std::size_t index = 0; index < after.size(); ++index) {
         const auto counted = static_cast<std::uint32_t>(std::max(after[index].target.w, 0.0F) +
                                                         0.5F);
-        const std::uint32_t expected = neighboursByBruteForce(before, index, radius);
-        require(counted == expected,
+        const Surroundings expected = surroundingsByBruteForce(before, index, radius);
+        require(counted == expected.count,
                 "agent " + std::to_string(index) + " counted " + std::to_string(counted) +
-                    " neighbours where every pair says " + std::to_string(expected));
-
-        const float score = vkexp::worlds::chain::stepScore(expected, state.physics.chainRewardBand,
-                                                            state.physics.chainCrowdLimit,
-                                                            state.physics.chainCrowdPenalty);
-        require(closeTo(after[index].metrics.w, score * state.physics.deltaTime),
+                    " neighbours where every pair says " + std::to_string(expected.count));
+        require(closeTo(after[index].penalties.z, expected.lopsidedness, 1.0e-3F),
                 "agent " + std::to_string(index) +
-                    " scored what the rule in ChainScenario.cpp says for its count");
+                    " reported its neighbours as lopsided by " +
+                    std::to_string(after[index].penalties.z) + " where every pair says " +
+                    std::to_string(expected.lopsidedness));
+
+        const float score = vkexp::worlds::chain::stepScore(
+            expected.count, expected.lopsidedness, state.physics.chainRewardBand,
+            state.physics.chainCrowdLimit, state.physics.chainCrowdPenalty,
+            state.physics.chainStraightWeight);
+        scores[index] = score;
+        require(closeTo(after[index].metrics.w, score * state.physics.deltaTime, 1.0e-3F),
+                "agent " + std::to_string(index) +
+                    " scored what the rule in ChainScenario.cpp says for its surroundings");
         const bool banded =
-            vkexp::worlds::chain::inBand(expected, state.physics.chainCrowdLimit);
+            vkexp::worlds::chain::inBand(expected.count, state.physics.chainCrowdLimit);
         require(closeTo(after[index].penalties.y, banded ? state.physics.deltaTime : 0.0F),
                 "agent " + std::to_string(index) + " banked time in the chain only while in band");
-        if (expected == 2) {
+        if (expected.count == 2) {
             ++interior;
         }
     }
-    // The staged line is six agents, so four of them are interior. Asserted
-    // rather than merely printed, because a radius that quietly reached further
-    // would make every one of them interior and the brute-force check above
-    // would still agree with the device -- both would be wrong together.
-    require(interior == 4, "the staged line has four interior agents, so the radius bites where "
-                           "it was told to and not at the light range");
+    // Six in a line and three in a triangle: four interior in the line, three
+    // corners, seven agents with exactly two neighbours. Asserted rather than
+    // printed, because a radius that quietly reached further would make far more
+    // of them interior and the brute-force check above would still agree with the
+    // device -- both would be wrong together.
+    require(interior == 7, "the line's interior and the triangle's corners all have two "
+                           "neighbours, so the radius bites where it was told to and not at the "
+                           "light range");
+
+    // The point of the straightness term, stated as the comparison it exists to
+    // make: two neighbours on opposite sides beat two neighbours sixty degrees
+    // apart. Without it these are the same number and the world settles into
+    // triangles, which is what the first runs did.
+    const float lineInside = scores[lineAgents[2]];
+    const float triangleCorner = scores[triangleAgents[0]];
+    require(lineInside > triangleCorner * 1.5F,
+            "the middle of the line scores " + std::to_string(lineInside) +
+                " against a triangle corner's " + std::to_string(triangleCorner) +
+                ", which is not the separation the straightness weight is for");
 
     std::cout << "Chain smoke passed on " << context.deviceName() << '\n';
     return EXIT_SUCCESS;

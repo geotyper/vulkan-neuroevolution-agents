@@ -61,6 +61,7 @@ struct Options {
     std::optional<std::uint32_t> chainRewardBand;
     std::optional<std::uint32_t> chainCrowdLimit;
     std::optional<float> chainCrowdPenalty;
+    std::optional<float> chainStraightWeight;
     std::optional<float> trailDepositRate;
     std::optional<float> beaconTrailDepositRate;
     std::optional<float> trailHalfLife;
@@ -122,6 +123,10 @@ void printHelp(const char* executable) {
                  "                           the control for whether the band does the work\n"
                  "  --chain-limit <n>        neighbours past this are penalised (default 3)\n"
                  "  --chain-penalty <x>      charged per neighbour past the limit (default 1)\n"
+                 "  --chain-straight <x>     how much of the reward needs the neighbours on\n"
+                 "                           opposite sides rather than merely present, 0..1\n"
+                 "                           (default 0.6). 0 is the plain count rule, which\n"
+                 "                           settles into orbiting triples rather than chains\n"
                  "  --locomotion <name>      how much the body carries: robot|rover|default|\n"
                  "                           glider|fish. Sets thrust, turn and the two drags\n"
                  "                           and nothing else, so every style has the same top\n"
@@ -397,6 +402,8 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.chainCrowdLimit = parseNumber<std::uint32_t>(next(index, argument), argument);
         } else if (argument == "--chain-penalty") {
             options.chainCrowdPenalty = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--chain-straight") {
+            options.chainStraightWeight = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-trail") {
             options.trailMode = vkexp::TrailMode::Off;
         } else if (argument == "--trail") {
@@ -534,6 +541,9 @@ int run(const Options& options) {
     }
     if (options.chainCrowdPenalty) {
         state.physics.chainCrowdPenalty = *options.chainCrowdPenalty;
+    }
+    if (options.chainStraightWeight) {
+        state.physics.chainStraightWeight = *options.chainStraightWeight;
     }
     if (options.maximumSpeed) {
         state.physics.maximumSpeed = *options.maximumSpeed;

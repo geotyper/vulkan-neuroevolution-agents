@@ -343,6 +343,16 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                                   "it rewards are also being penalised. That is a world, but "
                                   "probably not the one you meant.");
         }
+        ImGui::SliderFloat("Straightness", &state_.physics.chainStraightWeight, 0.0F, 1.0F,
+                           "%.2f");
+        ImGui::SetItemTooltip(
+            "How much of the reward is gated on the neighbours being on opposite sides rather "
+            "than merely being there.\n\nA count alone cannot tell a chain from a ring: the "
+            "middle of a line has two neighbours and so does a corner of a triangle, and of two "
+            "arrangements worth the same, selection takes the one that is easier to hold -- the "
+            "triangle. At 0 this is the plain count rule and pairs and triples orbiting each "
+            "other are the optimum. At 1 a first neighbour is worth nothing, which removes the "
+            "pull that gets a scattered population together at all.");
         ImGui::SliderFloat("Crowd penalty", &state_.physics.chainCrowdPenalty, 0.0F, 4.0F, "%.2f");
         ImGui::SetItemTooltip("Charged per neighbour past the limit, against a reward of one per "
                               "neighbour up to the band. At 0 crowding is merely not paid for "

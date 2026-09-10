@@ -175,6 +175,12 @@ void main() {
     // neighbour loop on the CPU side at all, so a world scored on this number
     // cannot appear in the parity test. See ChainScenario.cpp.
     uint neighbourCount = 0;
+    // And where they are, not only how many. A count cannot tell a chain from a
+    // ring -- two neighbours is two neighbours whether they are on opposite
+    // sides or sixty degrees apart -- so the unit vectors are summed as well.
+    // The magnitude of that sum is what separates the two: zero from the middle
+    // of a line, 1.73 from a triangle.
+    vec2 neighbourDirectionSum = vec2(0.0);
     for (int offsetY = -cellReach; offsetY <= cellReach; ++offsetY) {
         for (int offsetX = -cellReach; offsetX <= cellReach; ++offsetX) {
             const ivec2 cell = centerCell + ivec2(offsetX, offsetY);
@@ -221,6 +227,7 @@ void main() {
                     if (params.chainNeighbourRadius > 0.0 &&
                         distanceToOther <= params.chainNeighbourRadius) {
                         ++neighbourCount;
+                        neighbourDirectionSum += directionToOther;
                     }
 
                     const float contactDistance = agent.pose.w + other.pose.w;
@@ -254,6 +261,13 @@ void main() {
     // has one.
     if (params.chainNeighbourRadius > 0.0) {
         agent.target.w = float(neighbourCount);
+        // How lopsided the neighbours are: 0 when they balance, which is the
+        // middle of a chain, and 1 when they all lie one way, which is what a
+        // single neighbour always looks like. penalties.z is free in a world
+        // without a puck, which is every world that asks for this.
+        agent.penalties.z = neighbourCount > 0u
+                                ? length(neighbourDirectionSum) / float(neighbourCount)
+                                : 0.0;
     }
 
     // Every index below comes from the shared preset, exactly as Sensors.cpp

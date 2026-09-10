@@ -15,12 +15,20 @@ void chainScenarioAfterStep(inout Agent agent) {
     const uint rewardBand = params.scenario.integers[0];
     const uint crowdLimit = params.scenario.integers[1];
     const float crowdPenalty = params.scenario.floats0.x;
+    const float straightWeight = params.scenario.floats0.y;
 
     // Mirrors chain::stepScore in ChainScenario.cpp, which is where the rule is
     // stated for the test to check. The two are read together rather than shared
-    // through an .inl because this is four lines of arithmetic on values that
+    // through an .inl because this is a few lines of arithmetic on values that
     // have already crossed the boundary as parameters.
-    const float reward = float(min(neighbours, rewardBand));
+    //
+    // penalties.z is how lopsided the neighbours are, laid down by the step loop.
+    // Gating the reward on 1 - that is what makes the middle of a chain worth
+    // more than a corner of a triangle, which have the same count and are
+    // otherwise the same thing to this rule.
+    const float straight = 1.0 - clamp(agent.penalties.z, 0.0, 1.0);
+    const float reward = float(min(neighbours, rewardBand)) *
+                         (straightWeight * straight + (1.0 - straightWeight));
     const float crowd = float(neighbours > crowdLimit ? neighbours - crowdLimit : 0u);
     agent.metrics.w += (reward - crowdPenalty * crowd) * params.deltaTime;
 
