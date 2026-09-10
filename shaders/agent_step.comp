@@ -384,6 +384,19 @@ void main() {
     if (speed > params.maximumSpeed) {
         agent.motion.xy *= params.maximumSpeed / speed;
     }
+    // The floor, after the ceiling so a floor above the ceiling still leaves the
+    // body at the ceiling rather than oscillating between them. Zero is off, and
+    // the branch is then never taken, so a world that does not ask for a floor
+    // integrates exactly what it always did. Mirrored in CpuSimulation.cpp.
+    if (params.minimumSpeed > 0.0 && speed < params.minimumSpeed) {
+        // A stopped body has no direction of its own, so it leaves the way it is
+        // pointing. Taking it from the velocity instead would amplify whatever
+        // numerical dust was left after the drag, which is a different heading
+        // every step.
+        agent.motion.xy = speed > 1.0e-5 ? agent.motion.xy * (params.minimumSpeed / speed)
+                                         : vec2(cos(agent.pose.z), sin(agent.pose.z)) *
+                                               params.minimumSpeed;
+    }
     agent.motion.z = clamp(agent.motion.z, -params.maximumAngularSpeed,
                            params.maximumAngularSpeed);
     const float correctionLength = length(positionCorrection);

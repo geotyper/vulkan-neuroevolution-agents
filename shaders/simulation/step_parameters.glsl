@@ -67,6 +67,9 @@ struct StepParameters {
     // which outgrew the twelve bits it used to share with the layout word.
     uint brainHiddenLayers;
     uint brainGenomeStride;
+    // The speed no body may fall below. Zero is off, which is every world but
+    // the chain one.
+    float minimumSpeed;
 };
 
 #endif

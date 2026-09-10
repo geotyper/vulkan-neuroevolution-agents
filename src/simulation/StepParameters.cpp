@@ -58,7 +58,8 @@ GpuStepParameters packStepParameters(const SimulationStep& resolved,
             resolved.puckTargetRadiusRatio,
             scenario.puck ? 1U : 0U,
             brain.packedLayers(),
-            static_cast<std::uint32_t>(brain.weightCount())};
+            static_cast<std::uint32_t>(brain.weightCount()),
+            resolved.minimumSpeed};
 }
 
 } // namespace vkexp

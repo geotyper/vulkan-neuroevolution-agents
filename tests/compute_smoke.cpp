@@ -418,7 +418,11 @@ void runTrajectoryParity(vkexp::HeadlessComputeContext& context,
                          // The hidden-layer plan, or empty for the scenario's own. A deep
                          // plan is a different genome layout and a different evaluation
                          // order, and the two languages have to walk it identically.
-                         const std::array<std::uint32_t, 3> hiddenLayers = {}) {
+                         const std::array<std::uint32_t, 3> hiddenLayers = {},
+                         // The speed floor. Off everywhere else, so a floor that
+                         // one language applied and the other did not would show
+                         // up only here.
+                         const float minimumSpeed = 0.0F) {
     const vkexp::neuro::Weights weights = makeTestWeights();
     vkexp::SimulationStep base{};
     base.beaconScenario = scenario;
@@ -428,6 +432,7 @@ void runTrajectoryParity(vkexp::HeadlessComputeContext& context,
     base.uniformBeaconColor = uniformBeaconColor;
     base.blockedDoorPerGeneration = doorsByGeneration;
     base.hiddenLayers = hiddenLayers;
+    base.minimumSpeed = minimumSpeed;
     // The seed is the generation number, and both generation-keyed options land
     // on odd ones. The default seed is even and the probe agent runs trial 0, so
     // asking for either without this would set a flag that changes nothing and
@@ -931,6 +936,12 @@ int run() {
                         vkexp::NeuronModel::Reactive);
     runTrajectoryParity(context, vkexp::BeaconScenario::Shuttle, 540, vkexp::NeuronModel::Gated);
     runTrajectoryParity(context, vkexp::BeaconScenario::Shuttle, 540, vkexp::NeuronModel::Spiking);
+    // The speed floor, which is applied in two places written in two languages and
+    // has no other coverage on the GPU side. 0.30 m/s against the default 1.7/s
+    // drag is well above where a coasting body settles, so the floor is doing
+    // something on every one of these steps rather than only at the start.
+    runTrajectoryParity(context, vkexp::BeaconScenario::Shuttle, 540,
+                        vkexp::NeuronModel::TimeConstant, false, false, false, {}, 0.30F);
     // Depth, on both sides. A three-layer plan changes where every weight lives
     // and the order the layers are walked in; a shader that read the plan even
     // slightly differently would drift here and nowhere else, because every

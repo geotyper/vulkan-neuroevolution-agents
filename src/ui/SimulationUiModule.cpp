@@ -422,6 +422,20 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                           static_cast<double>(1000.0F /
                                               std::max(state_.physics.angularDrag, 1.0e-3F)));
     ImGui::SliderFloat("Maximum speed (m/s)", &state_.physics.maximumSpeed, 0.10F, 1.50F);
+    ImGui::SliderFloat("Minimum speed (m/s)", &state_.physics.minimumSpeed, 0.0F, 1.50F);
+    ImGui::SetItemTooltip(
+        "The speed a body may never drop below. At 0 the floor is off and the physics is exactly "
+        "what every world was measured on.\n\nAbove 0 it removes standing still from what an agent "
+        "can do, which changes what a task even is: an arrangement that has to be held can no "
+        "longer be parked into, only flown. A body pushed to a halt leaves along its heading.");
+    if (state_.physics.minimumSpeed >= state_.physics.maximumSpeed &&
+        state_.physics.minimumSpeed > 0.0F) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4{1.0F, 0.75F, 0.25F, 1.0F}, "at the ceiling");
+        ImGui::SetItemTooltip("The floor is at or above the maximum, so every body runs at the "
+                              "maximum and the drive only steers. That is a valid world, but it "
+                              "is a different one from the one this slider usually makes.");
+    }
     ImGui::SliderFloat("Maximum turn speed (rad/s)", &state_.physics.maximumAngularSpeed, 0.25F,
                        8.0F);
     if (!response.turnCapBinds) {

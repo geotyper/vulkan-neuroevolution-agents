@@ -49,6 +49,7 @@ template <typename Visit> void visitPhysics(SimulationStep& physics, Visit&& vis
     visit(physics.sensorFieldOfView);
     visit(physics.arrivalRadiusMultiplier);
     visit(physics.maximumSpeed);
+    visit(physics.minimumSpeed);
     visit(physics.maximumAngularSpeed);
     visit(physics.lightSensorRange);
     visit(physics.lightRangeRatio);
@@ -69,6 +70,8 @@ template <typename Visit> void visitPhysics(SimulationStep& physics, Visit&& vis
     visit(physics.puckRadiusRatio);
     visit(physics.puckBreakawayPushes);
     visit(physics.gateLatchSeconds);
+    visit(physics.chainNeighbourBodies);
+    visit(physics.chainCrowdPenalty);
     visit(physics.trailDepositRate);
     visit(physics.trailHalfLife);
     visit(physics.beaconTrailDepositRate);
@@ -82,7 +85,7 @@ template <typename Visit> void visitPhysics(SimulationStep& physics, Visit&& vis
     visit(physics.fitness.groupSharing);
 }
 
-constexpr std::uint32_t physicsFloatCount = 40;
+constexpr std::uint32_t physicsFloatCount = 43;
 
 // visitPhysics and PhysicsIntegers together have to name every field of
 // SimulationStep, and this is what notices when a new tunable is added and
@@ -95,7 +98,7 @@ constexpr std::uint32_t physicsFloatCount = 40;
 // after it. A new bool is therefore
 // covered by testWorldSnapshotRoundTrip naming it in both polarities, which is
 // the check that does not depend on the size changing.
-static_assert(sizeof(SimulationStep) == 212,
+static_assert(sizeof(SimulationStep) == 232,
               "SimulationStep changed shape -- update the world snapshot field lists");
 
 // The handful of fields that are not floats, kept apart so the float list above
@@ -118,9 +121,11 @@ struct PhysicsIntegers {
     std::uint32_t uniformBeaconColor{};
     std::uint32_t blockedDoorPerGeneration{};
     std::uint32_t puckRandomStart{};
+    std::uint32_t chainRewardBand{};
+    std::uint32_t chainCrowdLimit{};
 };
 
-static_assert(sizeof(PhysicsIntegers) == 68);
+static_assert(sizeof(PhysicsIntegers) == 76);
 
 void readExactly(std::ifstream& stream, void* destination, const std::size_t bytes,
                  const std::filesystem::path& path) {
@@ -188,7 +193,9 @@ void saveWorldSnapshot(const std::filesystem::path& path, const WorldSnapshot& s
                                    physics.swapDeliveryEnds ? 1U : 0U,
                                    physics.uniformBeaconColor ? 1U : 0U,
                                    physics.blockedDoorPerGeneration ? 1U : 0U,
-                                   physics.puckRandomStart ? 1U : 0U};
+                                   physics.puckRandomStart ? 1U : 0U,
+                                   physics.chainRewardBand,
+                                   physics.chainCrowdLimit};
     stream.write(reinterpret_cast<const char*>(&integers), sizeof(integers));
 
     for (const Genome& genome : snapshot.genomes) {
@@ -272,6 +279,8 @@ WorldSnapshot loadWorldSnapshot(const std::filesystem::path& path) {
     snapshot.physics.uniformBeaconColor = integers.uniformBeaconColor != 0;
     snapshot.physics.blockedDoorPerGeneration = integers.blockedDoorPerGeneration != 0;
     snapshot.physics.puckRandomStart = integers.puckRandomStart != 0;
+    snapshot.physics.chainRewardBand = integers.chainRewardBand;
+    snapshot.physics.chainCrowdLimit = integers.chainCrowdLimit;
     if (integers.neuronModel >= neuronModelCount) {
         throw WorldSnapshotError("World snapshot names neuron model " +
                                  std::to_string(integers.neuronModel) + ", which this build has "

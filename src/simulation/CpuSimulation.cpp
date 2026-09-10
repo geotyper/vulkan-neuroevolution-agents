@@ -75,6 +75,19 @@ void stepAgentCpu(AgentState& agent,
         agent.motion.x *= scale;
         agent.motion.y *= scale;
     }
+    // The floor. See the note beside the same lines in agent_step.comp: after the
+    // ceiling, off at zero, and along the heading when the velocity is too small
+    // to have a direction of its own.
+    if (settings.minimumSpeed > 0.0F && speed < settings.minimumSpeed) {
+        if (speed > 1.0e-5F) {
+            const float scale = settings.minimumSpeed / speed;
+            agent.motion.x *= scale;
+            agent.motion.y *= scale;
+        } else {
+            agent.motion.x = std::cos(agent.pose.z) * settings.minimumSpeed;
+            agent.motion.y = std::sin(agent.pose.z) * settings.minimumSpeed;
+        }
+    }
     agent.motion.z =
         std::clamp(agent.motion.z, -settings.maximumAngularSpeed, settings.maximumAngularSpeed);
     agent.pose.x += agent.motion.x * settings.deltaTime;

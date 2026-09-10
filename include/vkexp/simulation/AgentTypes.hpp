@@ -342,6 +342,17 @@ struct SimulationStep {
     float sensorFieldOfView{1.8F};         // rad, total arc spanned by the receptors
     float arrivalRadiusMultiplier{1.0F};   // dimensionless
     float maximumSpeed{0.55F};             // m/s
+    // The speed a body may never drop below, in m/s. Zero is off, and off is the
+    // default, so every world measured so far is unchanged to the bit.
+    //
+    // A floor is not a smaller version of the ceiling: it takes standing still
+    // out of the action space, which is the difference between a task a group
+    // can solve by parking in the right arrangement and one it has to fly in
+    // formation to solve. Applied after the ceiling and along the heading when
+    // the velocity is too small to have a direction of its own, so an agent that
+    // is pushed to a halt leaves the way it is pointing rather than the way it
+    // was drifting.
+    float minimumSpeed{0.0F}; // m/s
     float maximumAngularSpeed{3.0F};       // rad/s
     float lightSensorRange{2.4F};          // m, derived from lightRangeRatio
     // Light range as a fraction of the arena radius. Fixing it in metres made a
@@ -401,6 +412,29 @@ struct SimulationStep {
     // stay behind for nothing -- which is the condition group fitness sharing
     // exists for, reached by moving a slider rather than by adding a scenario.
     float gateLatchSeconds{4.0F}; // s
+    // Chain world. How far away another agent still counts as a neighbour,
+    // measured in body diameters between centres rather than in metres: the
+    // question the world asks is "how close, in units of yourself", and a radius
+    // fixed in metres would mean something different the moment the body changed
+    // size. 1.0 is touching, so 1.5 is a neighbour half a body clear of contact.
+    //
+    // The count comes from the same grid sweep the contact and light passes
+    // already walk, and that sweep reaches lightSensorRange. Asking for more than
+    // that would silently count only what fell inside it, so the world clamps and
+    // the window says when it has.
+    float chainNeighbourBodies{1.5F};
+    // What a step is worth: one point per neighbour up to the band, then a
+    // penalty per neighbour past the limit.
+    //
+    // The band is what separates a chain from a heap of pairs. Rewarding merely
+    // "has a neighbour" scores two agents stuck together as highly as a column,
+    // so there is nothing to gain by lining up. At a band of two, the inside of a
+    // chain scores above its ends, which is the same statement as "be in a line".
+    // The limit is where a line becomes a cluster: three neighbours this close is
+    // already a triangle.
+    std::uint32_t chainRewardBand{2};
+    std::uint32_t chainCrowdLimit{3};
+    float chainCrowdPenalty{1.0F};
     // Trail field. The deposit is per second and the lifetime is a half-life in
     // seconds, so neither becomes a function of the step rate.
     // Deposit rates come from what a single pass has to leave behind, not from a
@@ -572,9 +606,14 @@ struct alignas(16) GpuStepParameters {
     // another genome's weights and still produce numbers.
     std::uint32_t brainHiddenLayers{};
     std::uint32_t brainGenomeStride{};
+    // Appended for the same reason as everything above it. Zero is off, so a
+    // shader reading a block written before this field existed would still
+    // integrate the physics it always did -- which is the property that makes
+    // appending safe here and slotting in not.
+    float minimumSpeed{};
 };
 
-static_assert(sizeof(GpuStepParameters) == 256);
+static_assert(sizeof(GpuStepParameters) == 272);
 static_assert(offsetof(GpuStepParameters, agentCount) == 64);
 static_assert(offsetof(GpuStepParameters, beaconScenario) == 96);
 static_assert(offsetof(GpuStepParameters, trailCellSize) == 112);

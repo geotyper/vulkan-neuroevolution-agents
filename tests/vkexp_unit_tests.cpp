@@ -2751,6 +2751,75 @@ void testPuckPushCredit() {
 // run answers -- but that the two legs it is made of are real: that the plate is
 // somewhere other than the doorway, that a shut gate actually hides what is
 // behind it, and that the latch does what its one number says.
+// The speed floor. Three claims, and each is a thing a plausible mistake would
+// break: that off means off to the bit, that a body at rest leaves along its
+// heading rather than along whatever dust the drag left in its velocity, and
+// that the floor holds against a drag that would otherwise stop the body.
+//
+// Off-means-off is checked by running the same agent twice rather than by
+// reading the branch, because "the physics is unchanged" is the claim every
+// world measured so far depends on, and a branch that is merely not taken is a
+// weaker statement than a trajectory that is identical.
+void testMinimumSpeed() {
+    const auto stepped = [](const float floor, const float initialSpeed, const float heading,
+                            const int steps) {
+        vkexp::SimulationStep settings{};
+        settings.minimumSpeed = floor;
+        // No drive at all, so the only thing acting on the body is drag and the
+        // floor. A brain that pushed would hide a floor that did nothing.
+        settings.thrust = 0.0F;
+        settings.turnAcceleration = 0.0F;
+        vkexp::AgentState agent{};
+        agent.pose = {0.0F, 0.0F, heading, vkexp::agentBodyRadius};
+        agent.motion = {std::cos(heading) * initialSpeed, std::sin(heading) * initialSpeed, 0.0F,
+                        1.0F};
+        const vkexp::neuro::Weights weights =
+            vkexp::neuro::makeWeights(vkexp::scenarioDefinition(settings.beaconScenario).brain);
+        for (int step = 0; step < steps; ++step) {
+            vkexp::stepAgentCpu(agent, weights, settings);
+        }
+        return agent;
+    };
+
+    // Four seconds at the default drag of 1.7/s: 0.4 m/s decays to 4.5e-4, and the
+    // floored body has had time to put real distance between them while staying
+    // well inside a 1.84 m arena.
+    const vkexp::AgentState off = stepped(0.0F, 0.4F, 0.0F, 240);
+    const float offSpeed = std::hypot(off.motion.x, off.motion.y);
+    check(offSpeed < 1.0e-3F, "with the floor off, drag brings the body to a stop as it always did");
+
+    const vkexp::AgentState floored = stepped(0.2F, 0.4F, 0.0F, 240);
+    const float flooredSpeed = std::hypot(floored.motion.x, floored.motion.y);
+    check(closeTo(flooredSpeed, 0.2F),
+          "the floor holds the body at exactly the floor once drag has taken it there");
+    check(floored.pose.x > off.pose.x + 0.4F,
+          "a body that cannot stop has travelled far past one that could");
+
+    // A body that starts at rest has no direction in its velocity, so the floor
+    // has to read the heading. Taking it from the velocity would leave the body
+    // at rest, or send it along numerical dust.
+    constexpr float heading = 2.0F;
+    const vkexp::AgentState fromRest = stepped(0.25F, 0.0F, heading, 1);
+    check(closeTo(fromRest.motion.x, std::cos(heading) * 0.25F) &&
+              closeTo(fromRest.motion.y, std::sin(heading) * 0.25F),
+          "a body starting at rest leaves along its heading at exactly the floor");
+
+    // The floor is applied after the ceiling, so a floor above the ceiling is
+    // the ceiling and not an oscillation between the two.
+    vkexp::SimulationStep inverted{};
+    inverted.minimumSpeed = 4.0F;
+    inverted.maximumSpeed = 0.55F;
+    inverted.thrust = 0.0F;
+    vkexp::AgentState pinned{};
+    pinned.pose = {0.0F, 0.0F, 0.0F, vkexp::agentBodyRadius};
+    pinned.motion = {0.1F, 0.0F, 0.0F, 1.0F};
+    const vkexp::neuro::Weights zero =
+        vkexp::neuro::makeWeights(vkexp::scenarioDefinition(inverted.beaconScenario).brain);
+    vkexp::stepAgentCpu(pinned, zero, inverted);
+    check(closeTo(std::hypot(pinned.motion.x, pinned.motion.y), 4.0F),
+          "a floor above the ceiling wins, because it is applied last");
+}
+
 // The locomotion ladder. Presets are only five points in a space the sliders
 // already reach, so what is worth pinning is not the numbers themselves but the
 // three claims made about them in the window: that the middle rung is the
@@ -3145,6 +3214,7 @@ int main() {
     testPuckWorld();
     testPuckPushCredit();
     testGateWorld();
+    testMinimumSpeed();
     testLocomotionPresets();
     testDeliveryCannotBeScoredTwice();
     testScenarioRegistryContract();
