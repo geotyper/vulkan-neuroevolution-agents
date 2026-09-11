@@ -9,6 +9,7 @@
 #include "vkexp/simulation/CpuSimulation.hpp"
 #include "vkexp/simulation/ExperimentSweep.hpp"
 #include "vkexp/simulation/Locomotion.hpp"
+#include "vkexp/worlds/ChainPresets.hpp"
 #include "vkexp/simulation/Sensors.hpp"
 #include "vkexp/simulation/PuckKernel.hpp"
 #include "vkexp/worlds/scenarios/GatePlateScenario.hpp"
@@ -2760,6 +2761,72 @@ void testPuckPushCredit() {
 // reading the branch, because "the physics is unchanged" is the claim every
 // world measured so far depends on, and a branch that is merely not taken is a
 // weaker statement than a trajectory that is identical.
+// The chain world's named formations. As with the locomotion ladder, the numbers
+// themselves are not what is worth pinning -- the sliders reach everywhere -- so
+// what is checked is the three claims the table makes: that it is in enum order
+// and reachable by key, that applying one and reading it back is a round trip,
+// and that the three settings outside the chain world's own are actually set.
+//
+// That last one is the reason the table exists. A preset that left the speed
+// floor at zero would name a formation the world cannot hold, because standing
+// still would beat every one of them.
+void testChainFormations() {
+    for (std::size_t index = 0; index < vkexp::worlds::chainFormationCount; ++index) {
+        const vkexp::worlds::ChainPreset& preset = vkexp::worlds::chainPresets[index];
+        check(static_cast<std::size_t>(preset.formation) == index,
+              "the formation table is in ChainFormation order");
+        check(preset.key != nullptr && *preset.key != '\0' && preset.name != nullptr &&
+                  preset.description != nullptr,
+              "every formation has a name, a key and a description");
+        check(vkexp::worlds::chainPresetForKey(preset.key) == &preset,
+              "a formation is reachable by its own key");
+        check(preset.minimumSpeed > 0.0F,
+              "every formation sets a speed floor, without which standing still wins");
+        check(preset.wallPenalty > 0.0F,
+              "every formation charges for the wall, which is otherwise a free place to park");
+        check(preset.rewardBand <= preset.crowdLimit,
+              "no formation rewards a neighbour it also penalises");
+
+        vkexp::SimulationStep settings{};
+        vkexp::worlds::applyChainPreset(settings, preset.formation);
+        check(vkexp::worlds::currentChainPreset(settings) == &preset,
+              "applying a formation and reading it back is a round trip");
+    }
+    check(vkexp::worlds::chainPresetForKey("nonesuch") == nullptr,
+          "an unknown formation key finds nothing");
+
+    // The finding this world produced, stated as a property of the table: a
+    // column and a mill are the same arrangement and differ in the motion, so
+    // the only number between them is the heading alignment.
+    const vkexp::worlds::ChainPreset& column =
+        vkexp::worlds::chainPreset(vkexp::worlds::ChainFormation::Column);
+    const vkexp::worlds::ChainPreset& mill =
+        vkexp::worlds::chainPreset(vkexp::worlds::ChainFormation::Mill);
+    check(column.straightWeight == mill.straightWeight &&
+              column.neighbourBodies == mill.neighbourBodies &&
+              column.rewardBand == mill.rewardBand,
+          "Column and Mill ask for the same arrangement");
+    check(column.alignWeight > 0.5F && mill.alignWeight == 0.0F,
+          "and differ in whether the arrangement has to be travelling along itself");
+
+    // The world ships asking for a column rather than for a configuration nobody
+    // chose. Only the chain world's own numbers, because the other three a preset
+    // sets are global physics: a shipped speed floor would change every one of the
+    // eleven other worlds, which is why those three stay the preset's job and the
+    // window warns when they have not been done.
+    const vkexp::SimulationStep defaults{};
+    check(defaults.chainRewardBand == column.rewardBand &&
+              defaults.chainCrowdLimit == column.crowdLimit &&
+              closeTo(defaults.chainNeighbourBodies, column.neighbourBodies) &&
+              closeTo(defaults.chainCrowdPenalty, column.crowdPenalty) &&
+              closeTo(defaults.chainStraightWeight, column.straightWeight) &&
+              closeTo(defaults.chainAlignWeight, column.alignWeight),
+          "the shipped chain numbers are Column's, so the world asks for the formation it was "
+          "built for");
+    check(defaults.minimumSpeed == 0.0F,
+          "and the floor is not shipped on, because it is physics every other world shares");
+}
+
 void testMinimumSpeed() {
     const auto stepped = [](const float floor, const float initialSpeed, const float heading,
                             const int steps) {
@@ -3214,6 +3281,7 @@ int main() {
     testPuckWorld();
     testPuckPushCredit();
     testGateWorld();
+    testChainFormations();
     testMinimumSpeed();
     testLocomotionPresets();
     testDeliveryCannotBeScoredTwice();

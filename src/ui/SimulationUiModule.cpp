@@ -3,6 +3,7 @@
 #include "vkexp/neuro/NeuralNetwork.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 #include "vkexp/simulation/Locomotion.hpp"
+#include "vkexp/worlds/ChainPresets.hpp"
 #include "vkexp/profiling/Profiler.hpp"
 #include "vkexp/ui/ImGuiModule.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
@@ -298,6 +299,35 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
                               "that can be selected for is what group fitness sharing is about.");
     }
     if (scenario.tunables.chainNeighbours) {
+        // The combo above the sliders it sets, the way the locomotion one sits
+        // above the four it sets. It reads as well as writes: dragging any slider
+        // afterwards drops it back to "Custom" rather than leaving a name over a
+        // world that has since been changed.
+        const worlds::ChainPreset* active = worlds::currentChainPreset(state_.physics);
+        int formation = active != nullptr ? static_cast<int>(active->formation)
+                                          : static_cast<int>(worlds::chainFormationCount);
+        constexpr const char* formations[] = {"Column", "Mill", "Flock", "Pairs", "Custom"};
+        static_assert(std::size(formations) == worlds::chainFormationCount + 1);
+        if (ImGui::Combo("Formation", &formation, formations,
+                         static_cast<int>(worlds::chainFormationCount) + 1) &&
+            formation < static_cast<int>(worlds::chainFormationCount)) {
+            worlds::applyChainPreset(state_.physics,
+                                     static_cast<worlds::ChainFormation>(formation));
+            state_.controls.resetRequested = true;
+        }
+        if (active != nullptr) {
+            ImGui::TextWrapped("%s", active->description);
+        } else {
+            ImGui::TextDisabled("Sliders do not match any named formation.");
+        }
+        ImGui::SetItemTooltip(
+            "These also set the speed floor, the wall penalty and group fitness sharing, which "
+            "are not this world's own settings.\n\nThat is deliberate. Without a floor the best "
+            "answer is to stop in a good arrangement; without a wall penalty the rim is a free "
+            "place to park, because the floor holds the velocity while the contact cancels the "
+            "displacement; and without sharing, the ends of a chain are punished individually and "
+            "defect. A preset that set only the chain numbers would be a preset that does not "
+            "work.");
         // The radius is in body diameters and not metres, because the question
         // the world asks is "how close, in units of yourself". 1.0 is touching.
         if (ImGui::SliderFloat("Neighbour radius (bodies)", &state_.physics.chainNeighbourBodies,

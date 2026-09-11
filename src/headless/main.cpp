@@ -10,6 +10,7 @@
 #include "vkexp/simulation/SimulationState.hpp"
 #include "vkexp/simulation/WorldSnapshot.hpp"
 #include "vkexp/simulation/Units.hpp"
+#include "vkexp/worlds/ChainPresets.hpp"
 #include "vkexp/worlds/WorldScenario.hpp"
 
 #include <algorithm>
@@ -63,6 +64,7 @@ struct Options {
     std::optional<float> chainCrowdPenalty;
     std::optional<float> chainStraightWeight;
     std::optional<float> chainAlignWeight;
+    const vkexp::worlds::ChainPreset* chainFormation{};
     std::optional<float> wallCollisionPenalty;
     std::optional<float> trailDepositRate;
     std::optional<float> beaconTrailDepositRate;
@@ -137,6 +139,11 @@ void printHelp(const char* executable) {
                  "                           the same way, 0..1 (default 0.7). This is the one\n"
                  "                           term that reads velocity: a column travels along\n"
                  "                           its own axis, an orbiting pair across it\n"
+                 "  --formation <name>       chain world preset: column|mill|flock|pairs.\n"
+                 "                           Sets every chain number, and also the speed floor,\n"
+                 "                           the wall penalty and fitness sharing, without which\n"
+                 "                           the world does not work. Individual flags after it\n"
+                 "                           override the parts they name\n"
                  "  --locomotion <name>      how much the body carries: robot|rover|default|\n"
                  "                           glider|fish. Sets thrust, turn and the two drags\n"
                  "                           and nothing else, so every style has the same top\n"
@@ -414,6 +421,13 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.chainCrowdPenalty = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--chain-straight") {
             options.chainStraightWeight = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--formation") {
+            const std::string_view name = next(index, argument);
+            options.chainFormation = vkexp::worlds::chainPresetForKey(name);
+            if (options.chainFormation == nullptr) {
+                fail("Unknown formation '" + std::string{name} +
+                     "'; expected column, mill, flock or pairs");
+            }
         } else if (argument == "--chain-align") {
             options.chainAlignWeight = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--wall-penalty") {
@@ -543,6 +557,12 @@ int run(const Options& options) {
     }
     if (options.minimumSpeed) {
         state.physics.minimumSpeed = *options.minimumSpeed;
+    }
+    // Before the individual chain flags, so --formation mill --chain-align 0.4 is
+    // "that formation, with this one thing changed" rather than a contradiction
+    // resolved by argument order.
+    if (options.chainFormation != nullptr) {
+        vkexp::worlds::applyChainPreset(state.physics, options.chainFormation->formation);
     }
     if (options.chainNeighbourBodies) {
         state.physics.chainNeighbourBodies = *options.chainNeighbourBodies;

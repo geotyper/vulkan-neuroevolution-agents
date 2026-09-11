@@ -454,9 +454,15 @@ struct SimulationStep {
     // At 0 this is the plain count rule, which is the control. At 1 the reward is
     // fully gated, and a first neighbour is then worth nothing at all -- which
     // removes the gradient that gets a scattered population together in the first
-    // place. The default keeps that gradient while making the inside of a chain
-    // worth about twice a triangle member.
-    float chainStraightWeight{0.6F};
+    // place.
+    //
+    // It ships at 1 anyway, because the gentler setting does not work: at a crowd
+    // limit of three the groups stay at three, and at three a triangle corner
+    // scores 0.96 against a line's 0.93 averaged over its members. Gated fully
+    // that becomes 0.27 against 0.67. Aggregation is the easy half of this world
+    // and is solved inside twenty generations; holding a line is the half that
+    // needs the pressure.
+    float chainStraightWeight{1.0F};
     // How much of the reward is gated on the neighbours going the same way you
     // are, rather than merely being where they are.
     //
