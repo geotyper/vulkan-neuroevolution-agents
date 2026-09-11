@@ -181,6 +181,12 @@ void main() {
     // The magnitude of that sum is what separates the two: zero from the middle
     // of a line, 1.73 from a triangle.
     vec2 neighbourDirectionSum = vec2(0.0);
+    // And where they are going. Straightness is about the arrangement, and an
+    // arrangement cannot separate a column from an orbit -- both have their
+    // neighbours in the right places at every instant. The motion can: a column
+    // travels along the axis its neighbours lie on, an orbiting pair travels
+    // across it with the two partners heading opposite ways.
+    vec2 neighbourHeadingSum = vec2(0.0);
     for (int offsetY = -cellReach; offsetY <= cellReach; ++offsetY) {
         for (int offsetX = -cellReach; offsetX <= cellReach; ++offsetX) {
             const ivec2 cell = centerCell + ivec2(offsetX, offsetY);
@@ -228,6 +234,15 @@ void main() {
                         distanceToOther <= params.chainNeighbourRadius) {
                         ++neighbourCount;
                         neighbourDirectionSum += directionToOther;
+                        // Velocity and not pose.z: with sideslip a body points
+                        // one way and travels another, and what a formation is
+                        // made of is where everyone is going. Falls back to the
+                        // heading only when there is no velocity to read, which
+                        // a speed floor makes unreachable.
+                        const float otherSpeed = length(other.motion.xy);
+                        neighbourHeadingSum += otherSpeed > 1.0e-5
+                                                   ? other.motion.xy / otherSpeed
+                                                   : vec2(cos(other.pose.z), sin(other.pose.z));
                     }
 
                     const float contactDistance = agent.pose.w + other.pose.w;
@@ -268,6 +283,18 @@ void main() {
         agent.penalties.z = neighbourCount > 0u
                                 ? length(neighbourDirectionSum) / float(neighbourCount)
                                 : 0.0;
+        // Mean of the dot products between this agent's heading and its
+        // neighbours', mapped onto 0..1: 1 for a column, 0 for an orbiting pair,
+        // 0.5 for neighbours going nowhere in particular together. Taken as one
+        // dot against the summed headings, which is the same number.
+        const float ownSpeed = length(agent.motion.xy);
+        const vec2 ownHeading = ownSpeed > 1.0e-5 ? agent.motion.xy / ownSpeed
+                                                  : vec2(cos(agent.pose.z), sin(agent.pose.z));
+        agent.target.x = neighbourCount > 0u
+                             ? 0.5 * (1.0 + clamp(dot(ownHeading, neighbourHeadingSum) /
+                                                      float(neighbourCount),
+                                                  -1.0, 1.0))
+                             : 0.0;
     }
 
     // Every index below comes from the shared preset, exactly as Sensors.cpp

@@ -353,6 +353,17 @@ void SimulationUiModule::onUpdate(AppContext& context, const FrameInfo& frame) {
             "triangle. At 0 this is the plain count rule and pairs and triples orbiting each "
             "other are the optimum. At 1 a first neighbour is worth nothing, which removes the "
             "pull that gets a scattered population together at all.");
+        ImGui::SliderFloat("Heading alignment", &state_.physics.chainAlignWeight, 0.0F, 1.0F,
+                           "%.2f");
+        ImGui::SetItemTooltip(
+            "How much of the reward is gated on the neighbours going the same way you are.\n\n"
+            "Straightness is about the arrangement, and an arrangement cannot separate a column "
+            "from an orbit: both have their neighbours in the right places at every instant. The "
+            "motion can. A column travels along the axis its neighbours lie on; an orbiting pair "
+            "travels across it, with the partners heading opposite ways.\n\nAlone this selects "
+            "for a flock, since agents abreast are perfectly aligned. It is the two together that "
+            "mean \"a line, moving along itself\". 0 is off, which is the world as it was when "
+            "it settled into orbiting triples.");
         ImGui::SliderFloat("Crowd penalty", &state_.physics.chainCrowdPenalty, 0.0F, 4.0F, "%.2f");
         ImGui::SetItemTooltip("Charged per neighbour past the limit, against a reward of one per "
                               "neighbour up to the band. At 0 crowding is merely not paid for "

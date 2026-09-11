@@ -9,7 +9,7 @@
 // The only thing in the arena is the other agents, and the only thing scored is
 // who is beside you.
 //
-// Three rules make that a chain rather than a heap.
+// Four rules make that a chain rather than a heap.
 //
 // The first is the speed floor, which is physics rather than scenery and lives
 // with the drags. Without it the best answer is to stop in a good arrangement
@@ -34,6 +34,19 @@
 // produced exactly that -- pairs and triples orbiting one another, no chains at
 // any length. Summing the unit vectors to the neighbours separates them: zero
 // from the middle of a line, 1.73 from a triangle. See chainStraightWeight.
+//
+// The fourth is that the reward is also gated on where the neighbours are going,
+// and this is what the straightness term alone could not reach. Straightness is
+// a statement about the arrangement, and an arrangement does not separate a
+// column from an orbit: at any instant both have their neighbours exactly where
+// the rule wants them. The motion does. A column travels along the axis its
+// neighbours lie on; an orbiting pair travels across it, with the two partners
+// heading opposite ways outright. See chainAlignWeight.
+//
+// Neither term works alone. Alignment by itself selects for a flock -- agents
+// abreast are perfectly aligned and perfectly lopsided -- and straightness by
+// itself cannot see the difference the first runs kept finding. Together they
+// say "a line, moving along itself".
 //
 // Every number here is a slider, because which of them produces a chain is
 // exactly what this world is for finding out. A band of one is the flat count
@@ -92,6 +105,7 @@ ScenarioParameterBlock gpuParameters(const SimulationStep& settings) {
     ScenarioParameterBlock block{};
     block.floats0.x = settings.chainCrowdPenalty;
     block.floats0.y = settings.chainStraightWeight;
+    block.floats0.z = settings.chainAlignWeight;
     block.integers[0] = settings.chainRewardBand;
     block.integers[1] = settings.chainCrowdLimit;
     return block;
@@ -106,12 +120,14 @@ static_assert(brain.fitsCapacity());
 
 } // namespace
 
-float stepScore(const std::uint32_t neighbours, const float lopsidedness,
+float stepScore(const std::uint32_t neighbours, const float lopsidedness, const float alignment,
                 const std::uint32_t rewardBand, const std::uint32_t crowdLimit,
-                const float crowdPenalty, const float straightWeight) {
+                const float crowdPenalty, const float straightWeight, const float alignWeight) {
     const float straight = 1.0F - std::clamp(lopsidedness, 0.0F, 1.0F);
+    const float aligned = std::clamp(alignment, 0.0F, 1.0F);
     const float reward = static_cast<float>(std::min(neighbours, rewardBand)) *
-                         (straightWeight * straight + (1.0F - straightWeight));
+                         (straightWeight * straight + (1.0F - straightWeight)) *
+                         (alignWeight * aligned + (1.0F - alignWeight));
     const auto crowd =
         static_cast<float>(neighbours > crowdLimit ? neighbours - crowdLimit : 0U);
     return reward - crowdPenalty * crowd;

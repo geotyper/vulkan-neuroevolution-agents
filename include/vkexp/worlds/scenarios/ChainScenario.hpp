@@ -13,9 +13,11 @@ namespace vkexp::worlds::chain {
 // `lopsidedness` is the magnitude of the mean unit vector to those neighbours:
 // 0 when they balance, which is the middle of a chain, and 1 when they all lie
 // one way, which is what a single neighbour always looks like.
-[[nodiscard]] float stepScore(std::uint32_t neighbours, float lopsidedness,
+// `alignment` is how far those neighbours are going the same way, on 0..1: 1 for
+// a column, 0 for an orbiting pair, 0.5 for a crowd with no common direction.
+[[nodiscard]] float stepScore(std::uint32_t neighbours, float lopsidedness, float alignment,
                               std::uint32_t rewardBand, std::uint32_t crowdLimit,
-                              float crowdPenalty, float straightWeight);
+                              float crowdPenalty, float straightWeight, float alignWeight);
 
 // Whether that many neighbours counts as being in the chain at all: at least
 // one, and not more than the crowd limit.

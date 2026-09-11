@@ -33,6 +33,7 @@
 #include "vkexp/worlds/scenarios/ChainScenario.hpp"
 
 #include <cmath>
+#include <algorithm>
 #include <numbers>
 #include <cstdlib>
 #include <exception>
@@ -62,13 +63,33 @@ struct Surroundings {
     // Magnitude of the mean unit vector to those neighbours: 0 when they balance
     // and 1 when they all lie one way.
     float lopsidedness{};
+    // Mean dot product between this agent's heading and its neighbours', mapped
+    // onto 0..1: 1 for a column, 0 for an orbiting pair.
+    float alignment{};
 };
+
+// The direction an agent is actually going, falling back to where it points when
+// there is no velocity to read. Mirrors the same choice in agent_step.comp: with
+// sideslip a body points one way and travels another, and a formation is made of
+// where everyone is going.
+void headingOf(const vkexp::AgentState& agent, float& outX, float& outY) {
+    const float speed = std::hypot(agent.motion.x, agent.motion.y);
+    if (speed > 1.0e-5F) {
+        outX = agent.motion.x / speed;
+        outY = agent.motion.y / speed;
+    } else {
+        outX = std::cos(agent.pose.z);
+        outY = std::sin(agent.pose.z);
+    }
+}
 
 Surroundings surroundingsByBruteForce(const std::vector<vkexp::AgentState>& agents,
                                       const std::size_t self, const float radius) {
     Surroundings result{};
     float sumX = 0.0F;
     float sumY = 0.0F;
+    float headingSumX = 0.0F;
+    float headingSumY = 0.0F;
     for (std::size_t other = 0; other < agents.size(); ++other) {
         if (other == self) {
             continue;
@@ -81,6 +102,11 @@ Surroundings surroundingsByBruteForce(const std::vector<vkexp::AgentState>& agen
         const float distance = std::hypot(dx, dy);
         if (distance <= radius) {
             ++result.count;
+            float otherHeadingX = 0.0F;
+            float otherHeadingY = 0.0F;
+            headingOf(agents[other], otherHeadingX, otherHeadingY);
+            headingSumX += otherHeadingX;
+            headingSumY += otherHeadingY;
             // The shader takes its direction the same way when two agents sit on
             // top of each other, so the degenerate case is reproduced rather than
             // avoided: the staged rim pile is exactly that.
@@ -92,6 +118,12 @@ Surroundings surroundingsByBruteForce(const std::vector<vkexp::AgentState>& agen
     }
     if (result.count > 0) {
         result.lopsidedness = std::hypot(sumX, sumY) / static_cast<float>(result.count);
+        float ownX = 0.0F;
+        float ownY = 0.0F;
+        headingOf(agents[self], ownX, ownY);
+        const float mean =
+            (ownX * headingSumX + ownY * headingSumY) / static_cast<float>(result.count);
+        result.alignment = 0.5F * (1.0F + std::clamp(mean, -1.0F, 1.0F));
     }
     return result;
 }
@@ -143,10 +175,17 @@ int run() {
     std::vector<std::size_t> ringRank(staged.agents.size() + 1, 0);
     for (std::size_t index = 0; index < staged.agents.size(); ++index) {
         vkexp::AgentState& agent = staged.agents[index];
+        agent.pose.z = 0.0F;
+        agent.motion = {0.0F, 0.0F, 0.0F, 1.0F};
         const auto world = static_cast<std::uint32_t>(std::max(agent.penalties.w, 0.0F) + 0.5F);
         if (world == firstWorld && placed < 6) {
             agent.pose.x = -1.0F + static_cast<float>(placed) * spacing;
             agent.pose.y = 0.0F;
+            // Travelling along the line it is part of, which is what a column
+            // is. Straightness cannot tell this from the triangle below; this
+            // velocity is the only thing that can.
+            agent.motion.x = state.physics.minimumSpeed;
+            agent.motion.y = 0.0F;
             lineAgents.push_back(index);
             ++placed;
         } else if (world == firstWorld && corners < 3) {
@@ -156,6 +195,12 @@ int run() {
                                 std::numbers::pi_v<float> / 3.0F;
             agent.pose.x = triangleCentreX + std::cos(angle) * circumradius;
             agent.pose.y = triangleCentreY + std::sin(angle) * circumradius;
+            // Turning about its own centre: each corner's velocity is at right
+            // angles to its radius, so the corners head 120 degrees apart and
+            // the mean dot product between neighbours is -0.5. That is the orbit
+            // the first runs of this world settled into, staged exactly.
+            agent.motion.x = -std::sin(angle) * state.physics.minimumSpeed;
+            agent.motion.y = std::cos(angle) * state.physics.minimumSpeed;
             triangleAgents.push_back(index);
             ++corners;
         } else if (world != firstWorld && !isolationProbePlaced) {
@@ -182,8 +227,6 @@ int run() {
             agent.pose.x = std::cos(angle) * ringRadius;
             agent.pose.y = std::sin(angle) * ringRadius;
         }
-        agent.pose.z = 0.0F;
-        agent.motion = {0.0F, 0.0F, 0.0F, 1.0F};
         agent.metrics = {0.0F, 0.0F, 0.0F, 0.0F};
         agent.target = {0.0F, 0.0F, agent.target.z, 0.0F};
         agent.penalties.x = 0.0F;
@@ -217,11 +260,16 @@ int run() {
                     " reported its neighbours as lopsided by " +
                     std::to_string(after[index].penalties.z) + " where every pair says " +
                     std::to_string(expected.lopsidedness));
+        require(closeTo(after[index].target.x, expected.alignment, 1.0e-3F),
+                "agent " + std::to_string(index) + " reported its neighbours aligned by " +
+                    std::to_string(after[index].target.x) + " where every pair says " +
+                    std::to_string(expected.alignment));
 
         const float score = vkexp::worlds::chain::stepScore(
-            expected.count, expected.lopsidedness, state.physics.chainRewardBand,
-            state.physics.chainCrowdLimit, state.physics.chainCrowdPenalty,
-            state.physics.chainStraightWeight);
+            expected.count, expected.lopsidedness, expected.alignment,
+            state.physics.chainRewardBand, state.physics.chainCrowdLimit,
+            state.physics.chainCrowdPenalty, state.physics.chainStraightWeight,
+            state.physics.chainAlignWeight);
         scores[index] = score;
         require(closeTo(after[index].metrics.w, score * state.physics.deltaTime, 1.0e-3F),
                 "agent " + std::to_string(index) +
@@ -249,10 +297,24 @@ int run() {
     // triangles, which is what the first runs did.
     const float lineInside = scores[lineAgents[2]];
     const float triangleCorner = scores[triangleAgents[0]];
-    require(lineInside > triangleCorner * 1.5F,
-            "the middle of the line scores " + std::to_string(lineInside) +
-                " against a triangle corner's " + std::to_string(triangleCorner) +
-                ", which is not the separation the straightness weight is for");
+    require(lineInside > triangleCorner * 2.0F,
+            "the middle of a moving column scores " + std::to_string(lineInside) +
+                " against a turning triangle's corner at " + std::to_string(triangleCorner) +
+                ", which is not the separation these two terms exist to make");
+
+    // And the halves of that separation, so a regression in either one is named
+    // rather than showing up as a ratio that merely got smaller. The column and
+    // the triangle have the same neighbour count; everything between them is in
+    // these two numbers.
+    const Surroundings column = surroundingsByBruteForce(before, lineAgents[2], radius);
+    const Surroundings orbit = surroundingsByBruteForce(before, triangleAgents[0], radius);
+    require(column.count == orbit.count,
+            "the staged column and orbit have the same neighbour count, which is the whole "
+            "reason a count cannot tell them apart");
+    require(column.lopsidedness < 0.05F && orbit.lopsidedness > 0.8F,
+            "the column's neighbours balance and the triangle's do not");
+    require(column.alignment > 0.95F && orbit.alignment < 0.3F,
+            "the column travels along itself and the orbit does not");
 
     std::cout << "Chain smoke passed on " << context.deviceName() << '\n';
     return EXIT_SUCCESS;

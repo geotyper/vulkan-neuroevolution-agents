@@ -457,6 +457,25 @@ struct SimulationStep {
     // place. The default keeps that gradient while making the inside of a chain
     // worth about twice a triangle member.
     float chainStraightWeight{0.6F};
+    // How much of the reward is gated on the neighbours going the same way you
+    // are, rather than merely being where they are.
+    //
+    // Straightness is a statement about the arrangement, and an arrangement is
+    // not what separates a column from an orbit: at any instant both have their
+    // neighbours where the rule wants them. The difference is in the motion. A
+    // column moves along the axis its neighbours lie on; an orbiting pair moves
+    // across it, and the two partners move in opposite directions outright.
+    //
+    // So this reads the mean of the dot products between an agent's heading and
+    // its neighbours' -- +1 for a column, -1 for an orbiting pair, 0 for a crowd
+    // going nowhere together -- mapped onto 0..1. It is the one term here that
+    // looks at velocity at all.
+    //
+    // Alone it selects for a flock rather than a chain: agents abreast are
+    // perfectly aligned and perfectly lopsided. It is straightness and alignment
+    // together that mean "a line, moving along itself". At 0 this is off, which
+    // is the world as it was when it settled into orbiting triples.
+    float chainAlignWeight{0.7F};
     // Trail field. The deposit is per second and the lifetime is a half-life in
     // seconds, so neither becomes a function of the step rate.
     // Deposit rates come from what a single pass has to leave behind, not from a

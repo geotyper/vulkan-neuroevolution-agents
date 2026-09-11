@@ -16,6 +16,7 @@ void chainScenarioAfterStep(inout Agent agent) {
     const uint crowdLimit = params.scenario.integers[1];
     const float crowdPenalty = params.scenario.floats0.x;
     const float straightWeight = params.scenario.floats0.y;
+    const float alignWeight = params.scenario.floats0.z;
 
     // Mirrors chain::stepScore in ChainScenario.cpp, which is where the rule is
     // stated for the test to check. The two are read together rather than shared
@@ -26,9 +27,15 @@ void chainScenarioAfterStep(inout Agent agent) {
     // Gating the reward on 1 - that is what makes the middle of a chain worth
     // more than a corner of a triangle, which have the same count and are
     // otherwise the same thing to this rule.
+    //
+    // target.x is how far the neighbours are going the same way, on 0..1, laid
+    // down beside the count. Gating on it as well is what puts an orbit below a
+    // column: the two have the same arrangement and opposite motion.
     const float straight = 1.0 - clamp(agent.penalties.z, 0.0, 1.0);
+    const float aligned = clamp(agent.target.x, 0.0, 1.0);
     const float reward = float(min(neighbours, rewardBand)) *
-                         (straightWeight * straight + (1.0 - straightWeight));
+                         (straightWeight * straight + (1.0 - straightWeight)) *
+                         (alignWeight * aligned + (1.0 - alignWeight));
     const float crowd = float(neighbours > crowdLimit ? neighbours - crowdLimit : 0u);
     agent.metrics.w += (reward - crowdPenalty * crowd) * params.deltaTime;
 

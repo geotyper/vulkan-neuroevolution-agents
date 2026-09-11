@@ -62,6 +62,8 @@ struct Options {
     std::optional<std::uint32_t> chainCrowdLimit;
     std::optional<float> chainCrowdPenalty;
     std::optional<float> chainStraightWeight;
+    std::optional<float> chainAlignWeight;
+    std::optional<float> wallCollisionPenalty;
     std::optional<float> trailDepositRate;
     std::optional<float> beaconTrailDepositRate;
     std::optional<float> trailHalfLife;
@@ -111,6 +113,10 @@ void printHelp(const char* executable) {
                  "  --orbit-ratio <x>        orbit radius as a fraction of the arena (0.72)\n"
                  "  --light-range <x>        light sensor range in metres (default 2.4)\n"
                  "  --max-speed <x>          agent speed limit in m/s (default 0.55)\n"
+                 "  --wall-penalty <x>       fitness charged per second of full-strength wall\n"
+                 "                           contact (default 0.6). A speed floor does not stop\n"
+                 "                           an agent parking against a wall: the velocity is\n"
+                 "                           held, the contact cancels the displacement\n"
                  "  --min-speed <x>          speed a body may never drop below, m/s. 0 is off\n"
                  "                           and off is the default; above 0 an agent cannot\n"
                  "                           stand still, only steer\n"
@@ -127,6 +133,10 @@ void printHelp(const char* executable) {
                  "                           opposite sides rather than merely present, 0..1\n"
                  "                           (default 0.6). 0 is the plain count rule, which\n"
                  "                           settles into orbiting triples rather than chains\n"
+                 "  --chain-align <x>        how much of the reward needs the neighbours going\n"
+                 "                           the same way, 0..1 (default 0.7). This is the one\n"
+                 "                           term that reads velocity: a column travels along\n"
+                 "                           its own axis, an orbiting pair across it\n"
                  "  --locomotion <name>      how much the body carries: robot|rover|default|\n"
                  "                           glider|fish. Sets thrust, turn and the two drags\n"
                  "                           and nothing else, so every style has the same top\n"
@@ -404,6 +414,10 @@ Options parseOptions(const int argc, char** argv, bool& helpRequested) {
             options.chainCrowdPenalty = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--chain-straight") {
             options.chainStraightWeight = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--chain-align") {
+            options.chainAlignWeight = parseNumber<float>(next(index, argument), argument);
+        } else if (argument == "--wall-penalty") {
+            options.wallCollisionPenalty = parseNumber<float>(next(index, argument), argument);
         } else if (argument == "--no-trail") {
             options.trailMode = vkexp::TrailMode::Off;
         } else if (argument == "--trail") {
@@ -544,6 +558,12 @@ int run(const Options& options) {
     }
     if (options.chainStraightWeight) {
         state.physics.chainStraightWeight = *options.chainStraightWeight;
+    }
+    if (options.chainAlignWeight) {
+        state.physics.chainAlignWeight = *options.chainAlignWeight;
+    }
+    if (options.wallCollisionPenalty) {
+        state.physics.wallCollisionPenalty = *options.wallCollisionPenalty;
     }
     if (options.maximumSpeed) {
         state.physics.maximumSpeed = *options.maximumSpeed;
